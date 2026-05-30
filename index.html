@@ -1415,6 +1415,7 @@ function saveMatch() {
     // 管理员直接入库
     state.matches.push(matchData);
     saveData();
+    renderAll();
     showToast('✅ 比赛已直接保存！');
     resetCurrent();
   } else {
@@ -1422,6 +1423,7 @@ function saveMatch() {
     state.pendingMatches.push(matchData);
     saveData();
     updatePendingBanner();
+    if (isAdmin) renderReview();
     showToast('📤 已提交，等待管理员审核后显示');
     resetCurrent();
   }
@@ -1613,6 +1615,8 @@ function approveMatch(idx) {
   saveData();
   showToast('✅ 已通过，比赛已入库');
   renderReview();
+  renderHistory();
+  renderStats();
   updateReviewBadge();
 }
 
