@@ -1,11 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>🏸 老朱和他的羽毛球朋友们</title>
-<!-- 数据通过 CloudBase 云函数 API 同步 -->
 <style>
 :root {
   --primary: #10B981;
@@ -53,14 +51,6 @@ body {
 .top-bar-row { display: flex; align-items: center; justify-content: space-between; }
 .top-bar h1 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .top-bar .subtitle { font-size: 12px; opacity: 0.85; margin-top: 3px; }
-.sync-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px;
-  opacity: 0.8;
-  margin-top: 2px;
-}
-.sync-badge.online { color: #A7F3D0; }
-.sync-badge.offline { color: #FCA5A5; }
 .admin-badge {
   display: inline-flex; align-items: center; gap: 4px;
   background: rgba(255,255,255,0.2);
@@ -479,6 +469,8 @@ select.form-input {
   transition: all 0.2s;
 }
 .partner-stats-tab.active { border-color: var(--orange); background: var(--orange-light); color: var(--orange); }
+
+/* 审核相关 */
 .pending-banner {
   background: linear-gradient(135deg, #FEF3C7, #FDE68A);
   border: 1.5px solid #F59E0B;
@@ -501,6 +493,8 @@ select.form-input {
 }
 .review-submitter { font-size: 11px; color: var(--text3); margin-top: 4px; }
 .review-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* 管理员密码弹窗 */
 .admin-hint { font-size: 12px; color: var(--text3); margin-bottom: 16px; }
 .pw-input {
   width: 100%;
@@ -516,6 +510,8 @@ select.form-input {
 }
 .pw-input:focus { border-color: var(--primary); }
 .pw-error { color: var(--danger); font-size: 13px; text-align: center; margin-bottom: 12px; }
+
+/* 提交成功提示 */
 .submit-notice {
   background: var(--warn-light);
   border-radius: var(--radius-sm);
@@ -526,48 +522,6 @@ select.form-input {
   display: none;
 }
 .submit-notice.show { display: block; }
-.loading-overlay {
-  display: flex;
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  z-index: 999;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 12px;
-}
-.loading-overlay.hidden { display: none; }
-.loading-spinner {
-  width: 40px; height: 40px;
-  border: 3px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-text { font-size: 14px; color: var(--text2); }
-.setup-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  z-index: 998;
-  align-items: center;
-  justify-content: center;
-}
-.setup-overlay.show { display: flex; }
-.setup-card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 24px;
-  width: 90%;
-  max-width: 400px;
-  box-shadow: var(--shadow-lg);
-}
-.setup-card h2 { font-size: 20px; margin-bottom: 8px; }
-.setup-card .desc { font-size: 13px; color: var(--text2); margin-bottom: 16px; line-height: 1.6; }
-.setup-card .steps { font-size: 12px; color: var(--text2); margin-top: 12px; line-height: 1.8; }
 
 @media (min-width: 600px) {
   body { max-width: 480px; margin: 0 auto; }
@@ -576,22 +530,11 @@ select.form-input {
 </head>
 <body>
 
-<!-- 加载中 / 诊断面板 -->
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="loading-spinner" id="loadingSpinner"></div>
-  <div class="loading-text" id="loadingText">正在连接云端...</div>
-  <button class="btn btn-outline" id="skipWaitBtn" style="margin-top:20px;display:none;"
-    onclick="fallbackToOffline();">
-    ⚡ 跳过等待，进入离线模式
-  </button>
-</div>
-
 <div class="top-bar">
   <div class="top-bar-row">
     <div>
       <h1>🏸 老朱和他的羽毛球朋友们</h1>
       <div class="subtitle">记录每一次精彩对决</div>
-      <div class="sync-badge" id="syncBadge">☁️ 云端同步</div>
     </div>
     <div class="admin-badge" id="adminBadge" onclick="toggleAdmin()">
       <span id="adminBadgeIcon">🔒</span>
@@ -613,6 +556,7 @@ select.form-input {
   <div class="pending-banner" id="pendingBanner" style="display:none;">
     ⏳ 你有 <span class="cnt" id="pendingCount">0</span> 条记录待管理员审核
   </div>
+
   <div class="card">
     <div class="card-title">📋 比赛类型</div>
     <div class="chip-group" id="matchTypeGroup">
@@ -623,6 +567,7 @@ select.form-input {
     </div>
     <div id="typeHint" style="display:none;margin-top:10px;padding:8px 12px;background:var(--warn-light);border-radius:var(--radius-sm);font-size:12px;color:#92400E;"></div>
   </div>
+
   <div class="card">
     <div class="card-title">🎮 比赛局数</div>
     <div class="game-points" id="gamePointsGroup">
@@ -637,6 +582,7 @@ select.form-input {
       <span>分制</span>
     </div>
   </div>
+
   <div class="card team-a">
     <div class="card-title" style="color:var(--primary)">🟢 <span id="teamALabel">A方</span><span id="teamASubType" style="font-size:12px;font-weight:400;margin-left:6px;color:var(--primary-dark);"></span></div>
     <div class="team-select" id="teamA" onclick="openPlayerPicker('A')">
@@ -644,6 +590,7 @@ select.form-input {
       <div id="teamAPlayers"></div>
     </div>
   </div>
+
   <div class="card team-b">
     <div class="card-title" style="color:var(--info)">🔵 <span id="teamBLabel">B方</span><span id="teamBSubType" style="font-size:12px;font-weight:400;margin-left:6px;color:var(--info-dark);"></span></div>
     <div class="team-select" id="teamB" onclick="openPlayerPicker('B')">
@@ -651,6 +598,8 @@ select.form-input {
       <div id="teamBPlayers"></div>
     </div>
   </div>
+
+  <!-- 比赛信息：时间 / 地点 / 备注 -->
   <div class="card">
     <div class="card-title">🕐 比赛信息</div>
     <div style="display:grid;gap:8px;">
@@ -664,19 +613,21 @@ select.form-input {
       </div>
     </div>
   </div>
+
   <div class="card" id="gamesCard" style="display:none;">
     <div class="card-title">📊 比赛记分</div>
     <div class="score-board">
       <div class="score-side">
         <div class="team-label">A方</div>
-        <input type="number" id="scoreAInput" value="" placeholder="A方得分" min="0" max="99" class="score-input score-input-a">
+        <input type="number" id="scoreAInput" value="0" min="0" max="99" class="score-input score-input-a">
       </div>
       <div class="score-vs">:</div>
       <div class="score-side">
         <div class="team-label">B方</div>
-        <input type="number" id="scoreBInput" value="" placeholder="B方得分" min="0" max="99" class="score-input score-input-b">
+        <input type="number" id="scoreBInput" value="0" min="0" max="99" class="score-input score-input-b">
       </div>
     </div>
+    <!-- 发球/接发选择（仅双打显示） -->
     <div id="serveReceiveArea" style="display:none;">
       <div class="form-row" style="margin-top:8px;">
         <div style="flex:1;">
@@ -693,6 +644,7 @@ select.form-input {
         </div>
       </div>
     </div>
+    <!-- 裁判员（当前局） -->
     <div style="margin-top:8px;">
       <label style="font-size:12px;color:var(--text2);">👨‍⚖️ 裁判员（可选）</label>
       <select id="currentReferee" class="form-input" style="margin-top:2px;font-size:13px;" onchange="onRefereeChange()">
@@ -704,6 +656,7 @@ select.form-input {
     <button class="btn btn-primary btn-block" onclick="addGame()" style="margin-top:12px;">+ 记录本局结果</button>
     <div id="gamesList" style="margin-top:12px;"></div>
   </div>
+
   <div style="display:flex;gap:10px;">
     <button class="btn btn-primary btn-block" onclick="saveMatch()" style="flex:2;">📤 提交比赛</button>
     <button class="btn btn-outline" onclick="resetCurrent()" style="flex:1;">重置</button>
@@ -749,6 +702,7 @@ select.form-input {
       </div>
     </div>
   </div>
+
   <div class="card">
     <div class="card-title">🏆 个人胜率排行榜</div>
     <div class="stats-header" id="statsFilter" style="flex-wrap:wrap;">
@@ -765,11 +719,13 @@ select.form-input {
     </div>
     <div id="rankList"></div>
   </div>
+
   <div class="card">
     <div class="card-title">🥇 个人总胜率排行（综合）</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">综合所有比赛类型，按胜率+场次综合排名</div>
     <div id="totalWinRankList"></div>
   </div>
+
   <div class="card">
     <div class="card-title">🤝 搭档胜率排行榜</div>
     <div class="stats-header" id="partnerTypeFilter" style="flex-wrap:wrap;">
@@ -783,14 +739,9 @@ select.form-input {
     </div>
     <div id="partnerList"></div>
   </div>
+
   <div class="card">
     <div class="card-title">🏅 搭档总胜率排行（综合）</div>
-    <div class="stats-header" id="totalPartnerTypeFilter" style="flex-wrap:wrap;">
-      <div class="stats-tab active" data-filter="all">全部双打</div>
-      <div class="stats-tab" data-filter="男双">· 男双</div>
-      <div class="stats-tab" data-filter="混双">· 混双</div>
-      <div class="stats-tab" data-filter="女双">· 女双</div>
-    </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">所有双打组合按胜率+场次综合排名</div>
     <div id="totalPartnerRankList"></div>
   </div>
@@ -810,9 +761,18 @@ select.form-input {
     </div>
   </div>
   <div id="playerList"></div>
+  <div class="card" style="margin-top:12px;">
+    <div class="card-title">📦 数据备份与恢复</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">导出所有球员和比赛数据，或从备份文件恢复。</div>
+    <div class="form-row">
+      <button class="btn btn-outline btn-block" onclick="exportData()">📤 导出数据</button>
+      <button class="btn btn-primary btn-block" onclick="document.getElementById('importFileInput').click()">📥 导入数据</button>
+    </div>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(event)">
+  </div>
 </div>
 
-<!-- ==================== 审核管理 ==================== -->
+<!-- ==================== 审核管理（仅管理员） ==================== -->
 <div class="page" id="page-review">
   <div class="card" style="border: 2px solid var(--warn); background: #FFFBEB;">
     <div class="card-title">🔐 管理员模式</div>
@@ -851,276 +811,89 @@ select.form-input {
 <div class="toast" id="toast"></div>
 
 <script>
-// ==================== API 配置 ====================
-const ENV_ID = 'ymq-d1g1qdr0d4028ee0b';
-const API_BASE = 'https://' + ENV_ID + '.service.tcloudbase.com/ymq-api';
-
 // ==================== 管理员配置 ====================
+// 默认密码 ymq2024（部署后可在此修改）
 const ADMIN_PASSWORD = 'ymq2024';
 
-// ==================== API 状态 ====================
-let apiOnline = false;   // 云函数 API 是否可达
-let isOfflineMode = false;
+// ==================== Data Store ====================
+const STORAGE_KEY = 'ymq_badminton_data_v3';
+let state = loadData();
+let isAdmin = false;
 
-// ==================== 通用 fetch 封装 ====================
-async function apiFetch(path, options) {
-  const url = API_BASE + '/' + path;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      ...options
-    });
-    clearTimeout(timeoutId);
-    const json = await res.json();
-    if (json.code !== 0) throw new Error(json.msg || 'API 错误');
-    return json.data;
-  } catch(e) {
-    clearTimeout(timeoutId);
-    throw e;
-  }
-}
-
-// ==================== 初始化 ====================
-let _initSafetyTimer = null;
-
-function hideLoadingOverlay() {
-  try { document.getElementById('loadingOverlay').classList.add('hidden'); } catch(e) {}
-}
-
-async function initApi() {
-  const skipBtn = document.getElementById('skipWaitBtn');
-  const showSkipBtn = setTimeout(() => {
-    if (skipBtn) skipBtn.style.display = '';
-  }, 3000);
-
-  // 安全保险：15 秒后无论如何都要隐藏 loading 进入降级模式
-  clearTimeout(_initSafetyTimer);
-  _initSafetyTimer = setTimeout(() => {
-    if (!document.getElementById('loadingOverlay').classList.contains('hidden')) {
-      console.warn('[API] 初始化超时，强制进入离线模式');
-      fallbackToOffline();
-    }
-  }, 15000);
-
-  const cleanup = () => {
-    clearTimeout(showSkipBtn);
-    clearTimeout(_initSafetyTimer);
-    if (skipBtn) skipBtn.style.display = 'none';
-  };
-
-  try {
-    document.getElementById('loadingText').textContent = '正在连接云端 API...';
-    const data = await apiFetch('players');
-    state.players = data.map(doc => ({ ...doc, _id: doc._id, id: doc.id || doc._id }));
-    
-    document.getElementById('loadingText').textContent = '正在同步数据...';
-    const [matches, pending] = await Promise.all([
-      apiFetch('matches'),
-      apiFetch('pending')
-    ]);
-    state.matches = matches.map(doc => ({ ...doc, _id: doc._id }));
-    // Auto-fill subtypes for old matches that don't have teamASubType/teamBSubType
-    state.matches.forEach(m => {
-      if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
-      if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
-    });
-
-    state.pendingMatches = pending.map(doc => ({ ...doc, _id: doc._id }));
-
-    cleanup();
-    apiOnline = true;
-    isOfflineMode = false;
-    document.getElementById('syncBadge').textContent = '☁️ 云端同步';
-    document.getElementById('syncBadge').className = 'sync-badge online';
-    hideLoadingOverlay();
-
-    console.log('[API] 数据同步完成:', state.players.length, '球员,', state.matches.length, '比赛');
-    init();
-
-  } catch (err) {
-    cleanup();
-    console.warn('[API] 连接失败，切换离线模式:', err.message);
-
-    document.getElementById('loadingText').textContent = '⚠️ ' + (err.name === 'AbortError' ? '请求超时' : err.message);
-    setTimeout(() => fallbackToOffline(), 1500);
-  }
-}
-
-function fallbackToOffline() {
-  clearTimeout(_initSafetyTimer);
-  try {
-    isOfflineMode = true;
-    apiOnline = false;
-    loadLocalFallbackData();
-    document.getElementById('syncBadge').textContent = '📴 离线模式';
-    document.getElementById('syncBadge').className = 'sync-badge offline';
-  } catch(e) {
-    console.error('[Fallback] 降级过程出错:', e);
-  }
-  hideLoadingOverlay();
-  try { init(); } catch(e) { console.error('[Fallback] init 出错:', e); }
-}
-
-// ==================== 数据层 — fetch API 操作 ====================
-let state = { players: [], matches: [], pendingMatches: [] };
-
-// 球员 CRUD
-async function cloudAddPlayer(player) {
-  if (isOfflineMode || !apiOnline) {
-    state.players.push(player);
-    saveLocalFallback();
-    return player;
-  }
-  try {
-    const result = await apiFetch('players', { method: 'POST', body: JSON.stringify(player) });
-    player._id = result._id;
-    state.players.push(player);
-    saveLocalFallback();
-  } catch(e) {
-    console.warn('cloudAddPlayer 云端失败:', e.message);
-    state.players.push(player);
-    saveLocalFallback();
-  }
-  return player;
-}
-
-async function cloudRemovePlayer(id) {
-  if (isOfflineMode || !apiOnline) {
-    state.players = state.players.filter(p => p._id !== id);
-    saveLocalFallback();
-    return;
-  }
-  try {
-    await apiFetch('players/' + id, { method: 'DELETE' });
-  } catch(e) { console.warn('cloudRemovePlayer 云端失败:', e.message); }
-  state.players = state.players.filter(p => p._id !== id);
-  saveLocalFallback();
-}
-
-// 比赛 CRUD
-async function cloudAddMatch(match) {
-  if (isOfflineMode || !apiOnline) {
-    state.matches.unshift(match);
-    saveLocalFallback();
-    return match;
-  }
-  try {
-    const result = await apiFetch('matches', { method: 'POST', body: JSON.stringify(match) });
-    match._id = result._id;
-  } catch(e) { console.warn('cloudAddMatch 云端失败:', e.message); }
-  state.matches.unshift(match);
-  saveLocalFallback();
-  return match;
-}
-
-async function cloudUpdateMatch(match) {
-  if (isOfflineMode || !apiOnline) {
-    const idx = state.matches.findIndex(m => m._id === match._id);
-    if (idx >= 0) state.matches[idx] = match;
-    saveLocalFallback();
-    return;
-  }
-  try {
-    const { _id, ...data } = match;
-    await apiFetch('matches/' + _id, { method: 'PUT', body: JSON.stringify(data) });
-  } catch(e) { console.warn('cloudUpdateMatch 云端失败:', e.message); }
-  const idx = state.matches.findIndex(m => m._id === match._id);
-  if (idx >= 0) state.matches[idx] = match;
-  saveLocalFallback();
-}
-
-async function cloudDeleteMatch(id) {
-  if (isOfflineMode || !apiOnline) {
-    state.matches = state.matches.filter(m => m._id !== id);
-    saveLocalFallback();
-    return;
-  }
-  try { await apiFetch('matches/' + id, { method: 'DELETE' }); } catch(e) {}
-  state.matches = state.matches.filter(m => m._id !== id);
-  saveLocalFallback();
-}
-
-// 待审核 CRUD
-async function cloudAddPending(match) {
-  if (isOfflineMode || !apiOnline) {
-    state.matches.unshift(match);
-    saveLocalFallback();
-    return;
-  }
-  try {
-    const result = await apiFetch('pending', { method: 'POST', body: JSON.stringify(match) });
-    match._id = result._id;
-    state.pendingMatches.push(match);
-  } catch(e) { console.warn('cloudAddPending 云端失败:', e.message); }
-}
-
-async function cloudRemovePending(id) {
-  if (isOfflineMode || !apiOnline) {
-    state.pendingMatches = state.pendingMatches.filter(m => m._id !== id);
-    saveLocalFallback();
-    return;
-  }
-  try { await apiFetch('pending/' + id, { method: 'DELETE' }); } catch(e) {}
-  state.pendingMatches = state.pendingMatches.filter(m => m._id !== id);
-  saveLocalFallback();
-}
-
-// ==================== 离线模式 - localStorage 回退 ====================
-const LOCAL_KEY = 'ymq_badminton_data_v3';
-
-function loadLocalFallbackData() {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    if (raw) {
-      const d = JSON.parse(raw);
-      state.players = (d.players || []).map(p => ({ ...p, id: p.id || p._id }));
-      state.matches = d.matches || [];
-      // Auto-fill subtypes for old matches
-      state.matches.forEach(m => {
-        if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
-        if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
-      });
-            // Auto-fill subtypes for old matches
-      state.matches.forEach(m => {
-        if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
-        if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
-      });
-
-      state.pendingMatches = d.pendingMatches || [];
-    }
-  } catch(e) {
-    state = { players: [], matches: [], pendingMatches: [] };
-  }
-}
-
-function saveLocalFallback() {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(state));
-}
-
-// ==================== 兼容层 - 统一数据保存接口 ====================
-// 原代码中的 saveData() 调用统一替换
-function saveData() {
-  if (isOfflineMode) {
-    saveLocalFallback();
-  }
-  // 云端模式下每次操作都是即时写入，无需额外保存
-}
-
-// ==================== 公共辅助函数 ====================
+// 获取裁判员显示名（支持球员ID 或 手动输入的名字字符串）
 function getRefereeName(referee) {
   if (!referee) return '';
   const player = state.players.find(p => p.id === referee);
   if (player) return player.name;
   return referee;
 }
-
+// 获取球员名（按ID）
 function getPlayerName(id) {
   if (!id) return '';
   const player = state.players.find(p => p.id === id);
   return player ? player.name : id;
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      // 兼容旧数据：旧数据中的 matches 全部视为已审核
+      if (d.matches && !d.pendingMatches) {
+        d.pendingMatches = [];
+      }
+      return d;
+    }
+  } catch(e) {}
+  return { players: [], matches: [], pendingMatches: [] };
+}
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+// ==================== 数据导入导出 ====================
+function exportData() {
+  const json = JSON.stringify(state, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '羽毛球数据_' + new Date().toLocaleDateString('zh-CN').replace(/\//g, '-') + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📤 数据已导出');
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.players || !data.matches) {
+        return showToast('❌ 文件格式不正确');
+      }
+      const count = data.players.length + data.matches.length;
+      // 合并数据：球员按ID去重，比赛按ID去重
+      const existingIds = new Set(state.players.map(p => p.id));
+      data.players.forEach(p => { if (!existingIds.has(p.id)) state.players.push(p); });
+      const existingMatchIds = new Set(state.matches.map(m => m.id));
+      data.matches.forEach(m => { if (!existingMatchIds.has(m.id)) state.matches.push(m); });
+      if (data.pendingMatches) {
+        const existingPendingIds = new Set(state.pendingMatches.map(m => m.id));
+        data.pendingMatches.forEach(m => { if (!existingPendingIds.has(m.id)) state.pendingMatches.push(m); });
+      }
+      saveData();
+      renderAll();
+      showToast('✅ 已导入 ' + count + ' 条数据');
+    } catch(err) {
+      showToast('❌ 文件解析失败');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // 重置 input，允许重复选同一文件
 }
 
 // ==================== Match types meta ====================
@@ -1129,6 +902,11 @@ const TYPE_META = {
   '单打':    { cls: 'sn',  isSingle: true,  isDoubles: false, isTeam: false },
   '团体赛':  { cls: 'team',isSingle: false, isDoubles: false, isTeam: true  },
   '无羽伦比':{ cls: 'wylb',isSingle: false, isDoubles: false, isTeam: true  },
+};
+
+const SUB_TYPE_LABELS = {
+  '男双': '男双', '混双': '混双', '女双': '女双',
+  '男单': '男单', '女单': '女单',
 };
 
 const TYPE_HINTS = {
@@ -1145,11 +923,11 @@ let currentMatch = {
 };
 let pickerTeam = null;
 let pickerSelected = [];
-let isAdmin = false;
 
 // ==================== Admin ====================
 function toggleAdmin() {
   if (isAdmin) {
+    // 已登录 → 退出确认
     if (confirm('退出管理员模式？')) adminLogout();
   } else {
     document.getElementById('adminPwInput').value = '';
@@ -1196,6 +974,7 @@ function updateAdminUI() {
     icon.textContent = '👑';
     text.textContent = '管理员 · 已登录';
     reviewBtn.style.display = '';
+    // 显示红点
     const cnt = state.pendingMatches.length;
     reviewBtn.innerHTML = '审核管理' + (cnt > 0 ? '<span class="badge-dot"></span>' : '');
   } else {
@@ -1203,6 +982,7 @@ function updateAdminUI() {
     icon.textContent = '🔒';
     text.textContent = '管理员';
     reviewBtn.style.display = 'none';
+    // 如果当前在审核tab，跳回
     if (document.getElementById('page-review').classList.contains('active')) switchTab('record');
   }
   updatePendingBanner();
@@ -1251,6 +1031,7 @@ function init() {
     if (v >= 5 && v <= 99) currentMatch.gamePoints = v;
   });
 
+  // 管理员密码框回车
   document.getElementById('adminPwInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitAdminPw();
   });
@@ -1258,7 +1039,6 @@ function init() {
   setupFilterTabs('historyFilter', renderHistory);
   setupFilterTabs('statsFilter', (f) => { renderRank(f); });
   setupFilterTabs('partnerTypeFilter', (f) => { renderPartners(f); });
-  setupFilterTabs('totalPartnerTypeFilter', (f) => { renderTotalPartnerRank(f); });
 
   document.getElementById('newPlayerName').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addPlayer();
@@ -1296,16 +1076,20 @@ function updateTeamLabels() {
   document.getElementById('teamBLabel').textContent = meta.isTeam ? '队伍B' : 'B方';
 }
 
+// 自动判断子类型（双打→男双/混双/女双；单打→男单/女单）
+// 判断一方的子类型（双打：男双/混双/女双；单打：男单/女单）
 function detectSideSubType(playerIds) {
   const players = playerIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
   if (players.length === 0) return '';
   const hasMale = players.some(p => p.gender === '男');
   const hasFemale = players.some(p => p.gender === '女');
+  // 双打判断
   if (players.length >= 2) {
     if (hasMale && hasFemale) return '混双';
     if (hasMale) return '男双';
     if (hasFemale) return '女双';
   }
+  // 单打判断
   if (players.length === 1) {
     return hasMale ? '男单' : '女单';
   }
@@ -1315,6 +1099,7 @@ function detectSideSubType(playerIds) {
 function autoDetectSubType() {
   const meta = TYPE_META[currentMatch.type] || {};
   if (meta.isDoubles || meta.isSingle) {
+    // 双打/单打：A方 B方 分别判断
     currentMatch.teamASubType = detectSideSubType(currentMatch.teamA);
     currentMatch.teamBSubType = detectSideSubType(currentMatch.teamB);
   } else {
@@ -1360,47 +1145,25 @@ function getActiveFilter(groupId) {
 
 // ==================== Player Management ====================
 function addPlayer() {
-  try {
-    if (!isAdmin) { showToast('🔒 需要管理员权限才能添加球员'); return; }
-    if (!state || !Array.isArray(state.players)) { showToast('⚠️ 数据未初始化，请刷新页面'); return; }
-
-    const nameInput = document.getElementById('newPlayerName');
-    const genderSelect = document.getElementById('newPlayerGender');
-    if (!nameInput || !genderSelect) { showToast('⚠️ 页面元素丢失，请刷新'); return; }
-
-    const name = (nameInput.value || '').trim();
-    if (!name) { showToast('请输入昵称'); return; }
-    if (name.length > 10) { showToast('昵称最多10个字符'); return; }
-    if (state.players.some(p => p.name === name)) { showToast('该昵称已存在'); return; }
-
-    const player = { id: genId(), name, gender: genderSelect.value || '男', createdAt: Date.now() };
-
-    // 离线模式：直接写入 state + localStorage
-    if (isOfflineMode || !apiOnline) {
-      state.players.push(player);
-      saveLocalFallback();
-    } else {
-      // 云端模式：异步写入（忽略 async，fire-and-forget 也可；这里用同步离线兜底）
-      state.players.push(player);
-      saveLocalFallback();
-      // 尝试云端同步（不阻塞 UI）
-      cloudAddPlayer(player).catch(e => console.warn('云端同步失败，已保存本地:', e.message));
-    }
-
-    nameInput.value = '';
-    renderPlayers();
-    showToast('✅ 已添加 ' + name);
-  } catch (err) {
-    console.error('addPlayer error:', err);
-    showToast('❌ 添加失败: ' + (err.message || '未知错误'));
-  }
+  if (!isAdmin) return showToast('🔒 需要管理员权限才能添加球员');
+  const nameInput = document.getElementById('newPlayerName');
+  const genderSelect = document.getElementById('newPlayerGender');
+  const name = nameInput.value.trim();
+  if (!name) return showToast('请输入昵称');
+  if (state.players.some(p => p.name === name)) return showToast('该昵称已存在');
+  state.players.push({ id: genId(), name, gender: genderSelect.value, createdAt: Date.now() });
+  saveData();
+  nameInput.value = '';
+  renderPlayers();
+  showToast('✅ 已添加 ' + name);
 }
 
-async function removePlayer(id) {
+function removePlayer(id) {
   if (!isAdmin) return showToast('🔒 需要管理员权限');
   const inMatch = state.matches.some(m => m.teamA.includes(id) || m.teamB.includes(id));
   if (inMatch) return showToast('该球员有比赛记录，无法删除');
-  await cloudRemovePlayer(id);
+  state.players = state.players.filter(p => p.id !== id);
+  saveData();
   renderPlayers();
   showToast('已删除');
 }
@@ -1421,7 +1184,7 @@ function renderPlayers() {
           <div style="font-size:15px;font-weight:600;">${esc(p.name)}</div>
           <div style="font-size:12px;color:var(--text3);">参赛 ${matches} 场</div>
         </div>
-        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="removePlayer('${p._id}')">删除</button>` : ''}
+        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="removePlayer('${p.id}')">删除</button>` : ''}
       </div>`;
   }).join('');
 }
@@ -1442,7 +1205,11 @@ function openPlayerPicker(team) {
   if (state.players.length === 0) {
     list.innerHTML = '<div class="empty-state"><p>还没有球员，管理员需先添加</p></div>';
   } else {
-    list.innerHTML = '<div class="chip-group">' + state.players.map(p => {
+    let filtered = state.players;
+    if (currentMatch.type === '男单' || currentMatch.type === '男双') filtered = state.players.filter(p => p.gender === '男');
+    if (currentMatch.type === '女单' || currentMatch.type === '女双') filtered = state.players.filter(p => p.gender === '女');
+
+    list.innerHTML = '<div class="chip-group">' + filtered.map(p => {
       const sel = pickerSelected.includes(p.id);
       return `<div class="player-tag ${sel ? 'selected' : ''}" data-id="${p.id}" onclick="togglePicker('${p.id}',${maxPick})">${esc(p.name)}</div>`;
     }).join('') + '</div>';
@@ -1495,12 +1262,14 @@ function updateTeamDisplay() {
     }
   });
   updateServeReceiveDropdowns();
+  // 双方都有球员时，显示比分输入区域
   const gc = document.getElementById('gamesCard');
   if (gc && currentMatch.teamA.length > 0 && currentMatch.teamB.length > 0) {
     gc.style.display = 'block';
   }
 }
 
+// 发球/接发下拉更新
 function updateServeReceiveDropdowns() {
   const meta = TYPE_META[currentMatch.type] || {};
   const area = document.getElementById('serveReceiveArea');
@@ -1536,6 +1305,7 @@ function updateCurrentRefereeDropdown() {
     sel.innerHTML += '<option value="' + p.id + '">' + esc(p.name) + '</option>';
   });
   sel.innerHTML += '<option value="__manual__">✏️ 其他（手动输入）</option>';
+  // 恢复之前的选择（如果是手动输入模式）
   if (currentVal === '__manual__') {
     sel.value = '__manual__';
     document.getElementById('currentRefereeManual').style.display = 'block';
@@ -1557,6 +1327,8 @@ function onRefereeChange() {
   }
 }
 
+// ==================== Score Controls ====================
+
 // ==================== Game Recording ====================
 function addGame() {
   const sA = parseInt(document.getElementById('scoreAInput').value) || 0;
@@ -1564,6 +1336,7 @@ function addGame() {
   if (sA === 0 && sB === 0) return showToast('比分不能都是0');
   const server  = document.getElementById('serverSelect') ? document.getElementById('serverSelect').value : '';
   const receiver = document.getElementById('receiverSelect') ? document.getElementById('receiverSelect').value : '';
+  // 裁判员：手动输入优先，其次下拉选择
   let referee = '';
   const refSel = document.getElementById('currentReferee');
   const refManual = document.getElementById('currentRefereeManual');
@@ -1573,8 +1346,9 @@ function addGame() {
     referee = refSel.value;
   }
   currentMatch.games.push({ a: sA, b: sB, server, receiver, referee });
-  document.getElementById('scoreAInput').value = '';
-  document.getElementById('scoreBInput').value = '';
+  document.getElementById('scoreAInput').value = 0;
+  document.getElementById('scoreBInput').value = 0;
+  // 重置裁判员选择
   if (refSel) refSel.value = '';
   if (refManual) { refManual.value = ''; refManual.style.display = 'none'; }
   document.getElementById('gamesCard').style.display = 'block';
@@ -1633,6 +1407,7 @@ function editGameScore(idx, side, val) {
   renderGames();
 }
 
+// 编辑当前比赛某局（比分+裁判）
 function promptEditGame(idx) {
   const g = currentMatch.games[idx];
   const sa = prompt('修改第' + (idx+1) + '局 A方比分（当前：' + g.a + '）', g.a);
@@ -1641,6 +1416,7 @@ function promptEditGame(idx) {
   if (sb === null) return;
   const na = parseInt(sa) || 0, nb = parseInt(sb) || 0;
   if (na < 0 || nb < 0) return showToast('比分不能为负');
+  // 裁判员：显示当前值，允许手动输入
   const curRef = getRefereeName(g.referee);
   const refInput = prompt('裁判员（直接输入姓名，留空则无裁判）', curRef || '');
   currentMatch.games[idx] = { ...g, a: na, b: nb, referee: (refInput || '').trim() };
@@ -1649,7 +1425,7 @@ function promptEditGame(idx) {
 }
 
 // ==================== Save Match ====================
-async function saveMatch() {
+function saveMatch() {
   if (currentMatch.teamA.length === 0 || currentMatch.teamB.length === 0) return showToast('请选择双方球员');
 
   const meta = TYPE_META[currentMatch.type] || {};
@@ -1688,15 +1464,17 @@ async function saveMatch() {
     createdAt: Date.now()
   };
 
-  if (isAdmin || isOfflineMode) {
-    // 管理员/离线模式直接入库
-    await cloudAddMatch(matchData);
+  if (isAdmin) {
+    // 管理员直接入库
+    state.matches.push(matchData);
+    saveData();
     renderAll();
     showToast('✅ 比赛已直接保存！');
     resetCurrent();
   } else {
     // 普通用户进入待审核队列
-    await cloudAddPending(matchData);
+    state.pendingMatches.push(matchData);
+    saveData();
     updatePendingBanner();
     if (isAdmin) renderReview();
     showToast('📤 已提交，等待管理员审核后显示');
@@ -1717,8 +1495,8 @@ function resetCurrent() {
   document.getElementById('teamBSubType').textContent = '';
   document.getElementById('matchTime').value = '';
   document.getElementById('matchLocation').value = '';
-  document.getElementById('scoreAInput').value = '';
-  document.getElementById('scoreBInput').value = '';
+  document.getElementById('scoreAInput').value = 0;
+  document.getElementById('scoreBInput').value = 0;
   const cf = document.getElementById('currentReferee');
   if (cf) cf.value = '';
   const gl = document.getElementById('gamesList');
@@ -1726,14 +1504,15 @@ function resetCurrent() {
   updateTeamDisplay();
 }
 
-// ==================== History ====================
+// ==================== History (只显示已审核) ====================
 function renderHistory() {
   const filter = getActiveFilter('historyFilter');
   const list = document.getElementById('historyList');
-  let matches = [...state.matches];
+  let matches = [...state.matches].reverse();
   if (filter !== 'all') {
     const subTypes = ['男双','混双','女双','男单','女单'];
     if (subTypes.includes(filter)) {
+      // 子类型筛选：A方或B方匹配即可
       matches = matches.filter(m =>
         m.teamASubType === filter || m.teamBSubType === filter ||
         (!m.teamASubType && !m.teamBSubType && m.type === filter)
@@ -1755,14 +1534,16 @@ function renderMatchItem(m, showDelete) {
   const meta = TYPE_META[m.type] || {};
   const typeClass = meta.cls || '';
   const time = m.matchTime ? formatDate(m.matchTime) : formatDate(m.createdAt);
+  // A/B 方子类型
   const subA = m.teamASubType ? '（' + m.teamASubType + '）' : '';
   const subB = m.teamBSubType ? '（' + m.teamBSubType + '）' : '';
+  // 比分可点击修改（仅管理员），显示发球/接发/裁判信息
   const gamesDisplay = isAdmin
     ? m.games.map((g, i) => {
         const serverStr = g.server ? '<span style="font-size:10px;color:var(--primary);"> 发:' + esc(getPlayerName(g.server)) + '</span>' : '';
         const receiverStr = g.receiver ? '<span style="font-size:10px;color:var(--info);"> 接:' + esc(getPlayerName(g.receiver)) + '</span>' : '';
         const refStr = g.referee ? '<span style="font-size:10px;color:var(--text3);"> 裁:' + esc(getRefereeName(g.referee)) + '</span>' : '';
-        return '<span style="cursor:pointer;text-decoration:underline dotted;" title="点击修改" onclick="promptEditGameScore(\'' + m._id + '\',' + i + ')">' + g.a + ':' + g.b + '</span>' + serverStr + receiverStr + refStr;
+        return '<span style="cursor:pointer;text-decoration:underline dotted;" title="点击修改" onclick="promptEditGameScore(\'' + m.id + '\',' + i + ')">' + g.a + ':' + g.b + '</span>' + serverStr + receiverStr + refStr;
       }).join(' / ')
     : m.games.map(g => {
         const serverName = g.server ? getPlayerName(g.server) : '';
@@ -1776,7 +1557,7 @@ function renderMatchItem(m, showDelete) {
       }).join(' / ');
   const noteHtml = m.note ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:4px 8px;background:var(--bg);border-radius:4px;">📝 ' + esc(m.note) + '</div>' : '';
   const locHtml = m.location ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ' + esc(m.location) + '</div>' : '';
-  const deleteBtn = (showDelete && isAdmin) ? '<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:10px;margin-top:4px;" onclick="deleteMatch(\'' + m._id + '\')">删除</button>' : '';
+  const deleteBtn = (showDelete && isAdmin) ? '<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:10px;margin-top:4px;" onclick="deleteMatch(\'' + m.id + '\')">删除</button>' : '';
   return `
     <div class="match-item">
       <div class="match-type-badge ${typeClass}">${m.type}</div>
@@ -1794,9 +1575,10 @@ function renderMatchItem(m, showDelete) {
     </div>`;
 }
 
-async function promptEditGameScore(matchId, gameIdx) {
+// 管理员点击比分，弹窗修改某局比分
+function promptEditGameScore(matchId, gameIdx) {
   if (!isAdmin) return;
-  const m = state.matches.find(x => x._id === matchId);
+  const m = state.matches.find(x => x.id === matchId);
   if (!m || !m.games[gameIdx]) return;
   const g = m.games[gameIdx];
   const sa = prompt('修改第' + (gameIdx+1) + '局 A方比分（当前：' + g.a + '）', g.a);
@@ -1805,28 +1587,31 @@ async function promptEditGameScore(matchId, gameIdx) {
   if (sb === null) return;
   const na = parseInt(sa) || 0, nb = parseInt(sb) || 0;
   if (na < 0 || nb < 0) return showToast('比分不能为负');
+  // 裁判员：允许手动输入
   const curRef = getRefereeName(g.referee);
   const refInput = prompt('裁判员（直接输入姓名，留空则无裁判）', curRef || '');
   m.games[gameIdx] = { ...g, a: na, b: nb, referee: (refInput || '').trim() };
+  // 重新计算 winner/winsA/winsB
   let wa = 0, wb = 0;
   m.games.forEach(g2 => { if (g2.a > g2.b) wa++; else wb++; });
   m.winsA = wa; m.winsB = wb;
   m.winner = wa > wb ? 'A' : 'B';
-  await cloudUpdateMatch(m);
+  saveData();
   renderHistory();
   renderStats();
   showToast('✅ 比分已更新');
 }
 
-async function deleteMatch(id) {
+function deleteMatch(id) {
   if (!isAdmin) return showToast('🔒 需要管理员权限');
-  await cloudDeleteMatch(id);
+  state.matches = state.matches.filter(m => m.id !== id);
+  saveData();
   renderHistory();
   renderStats();
   showToast('已删除');
 }
 
-// ==================== Review ====================
+// ==================== Review (待审核，仅管理员) ====================
 function renderReview() {
   const list = document.getElementById('reviewList');
   const pending = state.pendingMatches;
@@ -1876,14 +1661,11 @@ function renderReview() {
   }).join('');
 }
 
-async function approveMatch(idx) {
+function approveMatch(idx) {
   const match = state.pendingMatches[idx];
+  state.matches.push(match);
   state.pendingMatches.splice(idx, 1);
-  if (!isOfflineMode) {
-    await cloudRemovePending(match._id);
-  }
-  delete match._id; // CloudBase 会自动生成新的 _id
-  await cloudAddMatch(match);
+  saveData();
   showToast('✅ 已通过，比赛已入库');
   renderReview();
   renderHistory();
@@ -1891,10 +1673,10 @@ async function approveMatch(idx) {
   updateReviewBadge();
 }
 
-async function rejectMatch(idx) {
+function rejectMatch(idx) {
   if (!confirm('确认拒绝并删除这条比赛记录？')) return;
-  const match = state.pendingMatches[idx];
-  await cloudRemovePending(match._id);
+  state.pendingMatches.splice(idx, 1);
+  saveData();
   showToast('已拒绝并删除');
   renderReview();
   updateReviewBadge();
@@ -1906,7 +1688,7 @@ function updateReviewBadge() {
   btn.innerHTML = '审核管理' + (cnt > 0 ? '<span class="badge-dot"></span>' : '');
 }
 
-// ==================== Stats ====================
+// ==================== Stats (只统计已审核数据) ====================
 function renderStats() {
   document.getElementById('totalMatches').textContent = state.matches.length;
   document.getElementById('totalPlayers').textContent = state.players.length;
@@ -1919,28 +1701,24 @@ function renderStats() {
 
   const partnerFilter = getActiveFilter('partnerTypeFilter');
   renderPartners(partnerFilter);
-  const totalPartnerFilter = getActiveFilter('totalPartnerTypeFilter');
-  renderTotalPartnerRank(totalPartnerFilter);
+  renderTotalPartnerRank();
 }
 
 function renderRank(filter) {
   const list = document.getElementById('rankList');
+  let matches = state.matches;
   if (filter !== 'all') {
     const subTypes = ['男双','混双','女双','男单','女单'];
     if (subTypes.includes(filter)) {
-      const ranked = calcPlayerStatsBySubType(filter);
-      if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
-      list.innerHTML = renderRankRows(ranked);
-      return;
+      matches = matches.filter(m =>
+        m.teamASubType === filter || m.teamBSubType === filter ||
+        (!m.teamASubType && !m.teamBSubType && m.type === filter)
+      );
     } else {
-      const matches = state.matches.filter(m => m.type === filter);
-      const ranked = calcPlayerStats(matches);
-      if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
-      list.innerHTML = renderRankRows(ranked);
-      return;
+      matches = matches.filter(m => m.type === filter);
     }
   }
-  const ranked = calcPlayerStats(state.matches);
+  const ranked = calcPlayerStats(matches);
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
   list.innerHTML = renderRankRows(ranked);
 }
@@ -1983,43 +1761,6 @@ function calcPlayerStats(matches) {
     });
 }
 
-  
-// 按子类型（男双/女双/混双/男单/女单）分别统计：仅计入该方匹配子类型的球员
-function calcPlayerStatsBySubType(subType) {
-  const stats = {};
-  state.players.forEach(p => {
-    stats[p.id] = { name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
-  });
-  state.matches.forEach(m => {
-    const aOk = m.teamASubType === subType;
-    const bOk = m.teamBSubType === subType;
-    if (!aOk && !bOk) return;
-    if (aOk) {
-      m.teamA.forEach(id => {
-        if (!stats[id]) return;
-        if (m.winner === 'A') stats[id].wins++; else stats[id].losses++;
-        m.games.forEach(g => { stats[id].pointsWon += g.a; stats[id].pointsLost += g.b; });
-        stats[id].totalGames += m.games.length;
-      });
-    }
-    if (bOk) {
-      m.teamB.forEach(id => {
-        if (!stats[id]) return;
-        if (m.winner === 'B') stats[id].wins++; else stats[id].losses++;
-        m.games.forEach(g => { stats[id].pointsWon += g.b; stats[id].pointsLost += g.a; });
-        stats[id].totalGames += m.games.length;
-      });
-    }
-  });
-  return Object.values(stats)
-    .filter(s => s.wins + s.losses > 0)
-    .sort((a, b) => {
-      const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
-      if (rB !== rA) return rB - rA;
-      return (b.wins + b.losses) - (a.wins + a.losses);
-    });
-}
-
 function renderRankRows(ranked) {
   const maxTotal = Math.max(...ranked.map(s => s.wins + s.losses), 1);
   return ranked.map((s, i) => {
@@ -2043,35 +1784,29 @@ function renderRankRows(ranked) {
 
 function renderPartners(filter) {
   const list = document.getElementById('partnerList');
+  let matches = state.matches;
   if (filter === 'all') {
-    const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
-    const ranked = calcPartnerStats(matches);
-    if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
-    return;
-  }
-  const subTypes = ['男双','混双','女双','男单','女单'];
-  if (subTypes.includes(filter)) {
-    const ranked = calcPartnerStatsBySubType(filter);
-    if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
+    matches = matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
   } else {
-    const matches = state.matches.filter(m => m.type === filter && m.teamA.length >= 2 && m.teamB.length >= 2);
-    const ranked = calcPartnerStats(matches);
-    if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
+    const subTypes = ['男双','混双','女双','男单','女单'];
+    if (subTypes.includes(filter)) {
+      matches = matches.filter(m =>
+        m.teamASubType === filter || m.teamBSubType === filter ||
+        (!m.teamASubType && !m.teamBSubType && m.type === filter)
+      );
+    } else {
+      matches = matches.filter(m => m.type === filter);
+    }
   }
+  const ranked = calcPartnerStats(matches);
+  if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
+  list.innerHTML = renderPartnerRows(ranked);
 }
 
-function renderTotalPartnerRank(filter) {
+function renderTotalPartnerRank() {
   const list = document.getElementById('totalPartnerRankList');
-  let ranked;
-  if (!filter || filter === 'all') {
-    const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
-    ranked = calcPartnerStats(matches);
-  } else {
-    ranked = calcPartnerStatsBySubType(filter);
-  }
+  const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
+  const ranked = calcPartnerStats(matches);
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
   list.innerHTML = renderPartnerRows(ranked);
 }
@@ -2086,30 +1821,6 @@ function calcPartnerStats(matches) {
     };
     processTeam(m.teamA, m.winner === 'A');
     processTeam(m.teamB, m.winner === 'B');
-  });
-  return Object.values(pairs).sort((a, b) => {
-    const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
-    if (rB !== rA) return rB - rA;
-    return (b.wins + b.losses) - (a.wins + a.losses);
-  });
-}
-
-// 按子类型分别统计搭档：仅计入该方匹配子类型的配对
-function calcPartnerStatsBySubType(subType) {
-  const pairs = {};
-  state.matches.forEach(m => {
-    const aOk = m.teamASubType === subType && m.teamA.length >= 2;
-    const bOk = m.teamBSubType === subType && m.teamB.length >= 2;
-    if (aOk) {
-      const key = [...m.teamA].sort().join('+');
-      if (!pairs[key]) pairs[key] = { players: [...m.teamA], wins: 0, losses: 0 };
-      if (m.winner === 'A') pairs[key].wins++; else pairs[key].losses++;
-    }
-    if (bOk) {
-      const key = [...m.teamB].sort().join('+');
-      if (!pairs[key]) pairs[key] = { players: [...m.teamB], wins: 0, losses: 0 };
-      if (m.winner === 'B') pairs[key].wins++; else pairs[key].losses++;
-    }
   });
   return Object.values(pairs).sort((a, b) => {
     const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
@@ -2167,15 +1878,10 @@ function showToast(msg) {
 
 function renderAll() {
   updateTeamDisplay();
-  renderHistory();
-  renderPlayers();
-  renderStats();
-  updateAdminUI();
-  if (isAdmin) renderReview();
 }
 
 // ==================== Start ====================
-initApi();
+init();
 </script>
 </body>
 </html>
