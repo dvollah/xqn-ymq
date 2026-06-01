@@ -1889,12 +1889,10 @@ function renderStats() {
 }
 
 function renderRank(filter) {
-  function renderRank(filter) {
   const list = document.getElementById('rankList');
   if (filter !== 'all') {
     const subTypes = ['男双','混双','女双','男单','女单'];
     if (subTypes.includes(filter)) {
-      // 按球员所在方子类型分别统计：只计入该方为该子类型的球员
       const ranked = calcPlayerStatsBySubType(filter);
       if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
       list.innerHTML = renderRankRows(ranked);
@@ -1912,14 +1910,6 @@ function renderRank(filter) {
   list.innerHTML = renderRankRows(ranked);
 }
 
-    }
-  }
-  const ranked = calcPlayerStats(matches);
-  if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
-  list.innerHTML = renderRankRows(ranked);
-}
-
-function renderTotalWinRank() {
   const list = document.getElementById('totalWinRankList');
   const ranked = calcPlayerStats(state.matches);
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
@@ -2016,7 +2006,6 @@ function renderRankRows(ranked) {
 }
 
 function renderPartners(filter) {
-  function renderPartners(filter) {
   const list = document.getElementById('partnerList');
   if (filter === 'all') {
     const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
@@ -2027,7 +2016,6 @@ function renderPartners(filter) {
   }
   const subTypes = ['男双','混双','女双','男单','女单'];
   if (subTypes.includes(filter)) {
-    // 按子类型分别统计搭档：仅计入该方匹配子类型的配对
     const ranked = calcPartnerStatsBySubType(filter);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
     list.innerHTML = renderPartnerRows(ranked);
@@ -2039,15 +2027,6 @@ function renderPartners(filter) {
   }
 }
 
-      matches = matches.filter(m => m.type === filter);
-    }
-  }
-  const ranked = calcPartnerStats(matches);
-  if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-  list.innerHTML = renderPartnerRows(ranked);
-}
-
-function renderTotalPartnerRank() {
   const list = document.getElementById('totalPartnerRankList');
   const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
   const ranked = calcPartnerStats(matches);
