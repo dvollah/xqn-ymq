@@ -165,5 +165,5 @@ exports.main = async (event, context) => {
     return fail(err.message || '服务器内部错误', 500);
   }
 
-  return fail('不支持的请求: ' + httpMethod + ' ' + path, 405);
+  return fail('不支持: ' + httpMethod + ' /' + resource + (id ? '/' + id : '') + ' (path=' + path + ')', 405);
 };
