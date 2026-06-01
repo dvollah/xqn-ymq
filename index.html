@@ -859,21 +859,51 @@ let isOfflineMode = false;
 // ==================== 通用 fetch 封装 ====================
 async function apiFetch(path, options) {
   const url = API_BASE + '/' + path;
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options
-  });
-  const json = await res.json();
-  if (json.code !== 0) throw new Error(json.msg || 'API 错误');
-  return json.data;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      ...options
+    });
+    clearTimeout(timeoutId);
+    const json = await res.json();
+    if (json.code !== 0) throw new Error(json.msg || 'API 错误');
+    return json.data;
+  } catch(e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }
 
 // ==================== 初始化 ====================
+let _initSafetyTimer = null;
+
+function hideLoadingOverlay() {
+  try { document.getElementById('loadingOverlay').classList.add('hidden'); } catch(e) {}
+}
+
 async function initApi() {
   const skipBtn = document.getElementById('skipWaitBtn');
   const showSkipBtn = setTimeout(() => {
     if (skipBtn) skipBtn.style.display = '';
   }, 3000);
+
+  // 安全保险：15 秒后无论如何都要隐藏 loading 进入降级模式
+  clearTimeout(_initSafetyTimer);
+  _initSafetyTimer = setTimeout(() => {
+    if (!document.getElementById('loadingOverlay').classList.contains('hidden')) {
+      console.warn('[API] 初始化超时，强制进入离线模式');
+      fallbackToOffline();
+    }
+  }, 15000);
+
+  const cleanup = () => {
+    clearTimeout(showSkipBtn);
+    clearTimeout(_initSafetyTimer);
+    if (skipBtn) skipBtn.style.display = 'none';
+  };
 
   try {
     document.getElementById('loadingText').textContent = '正在连接云端 API...';
@@ -891,44 +921,41 @@ async function initApi() {
       if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
       if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
     });
-        // Auto-fill subtypes for old matches that don't have teamASubType/teamBSubType
-    state.matches.forEach(m => {
-      if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
-      if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
-    });
 
     state.pendingMatches = pending.map(doc => ({ ...doc, _id: doc._id }));
 
-    clearTimeout(showSkipBtn);
-    if (skipBtn) skipBtn.style.display = 'none';
-
+    cleanup();
     apiOnline = true;
     isOfflineMode = false;
     document.getElementById('syncBadge').textContent = '☁️ 云端同步';
     document.getElementById('syncBadge').className = 'sync-badge online';
-    document.getElementById('loadingOverlay').classList.add('hidden');
+    hideLoadingOverlay();
 
     console.log('[API] 数据同步完成:', state.players.length, '球员,', state.matches.length, '比赛');
     init();
 
   } catch (err) {
-    clearTimeout(showSkipBtn);
-    if (skipBtn) skipBtn.style.display = 'none';
+    cleanup();
     console.warn('[API] 连接失败，切换离线模式:', err.message);
 
-    document.getElementById('loadingText').textContent = '⚠️ ' + err.message;
-    setTimeout(() => fallbackToOffline(), 2000);
+    document.getElementById('loadingText').textContent = '⚠️ ' + (err.name === 'AbortError' ? '请求超时' : err.message);
+    setTimeout(() => fallbackToOffline(), 1500);
   }
 }
 
 function fallbackToOffline() {
-  isOfflineMode = true;
-  apiOnline = false;
-  loadLocalFallbackData();
-  document.getElementById('syncBadge').textContent = '📴 离线模式';
-  document.getElementById('syncBadge').className = 'sync-badge offline';
-  document.getElementById('loadingOverlay').classList.add('hidden');
-  init();
+  clearTimeout(_initSafetyTimer);
+  try {
+    isOfflineMode = true;
+    apiOnline = false;
+    loadLocalFallbackData();
+    document.getElementById('syncBadge').textContent = '📴 离线模式';
+    document.getElementById('syncBadge').className = 'sync-badge offline';
+  } catch(e) {
+    console.error('[Fallback] 降级过程出错:', e);
+  }
+  hideLoadingOverlay();
+  try { init(); } catch(e) { console.error('[Fallback] init 出错:', e); }
 }
 
 // ==================== 数据层 — fetch API 操作 ====================
