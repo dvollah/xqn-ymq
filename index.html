@@ -934,16 +934,19 @@ async function initCloudbase() {
     // Step 2: 初始化
     diag('初始化 CloudBase 环境: ' + envId);
     const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-    if (!app || typeof app.auth !== 'function') {
+    // v2.x: app.auth 是对象（含 signInAnonymously 等方法），不是函数
+    if (!app || !app.auth || typeof app.auth.signInAnonymously !== 'function') {
       diag('CloudBase 初始化返回异常', 'err');
       throw new Error('CloudBase 初始化返回异常');
     }
     diag('CloudBase 实例创建成功', 'ok');
 
-    // Step 3: 匿名登录
+    // Step 3: 匿名登录 (v2.x API)
     diag('匿名登录中...');
     document.getElementById('loadingText').textContent = '正在连接云端...';
-    const loginPromise = app.auth({ persistence: 'local' }).signInAnonymously();
+
+    // v2.x: app.auth.signInAnonymously() — 注意 app.auth 不加括号
+    const loginPromise = app.auth.signInAnonymously();
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error('登录超时（8秒）')), CONNECT_TIMEOUT);
     });
@@ -951,11 +954,21 @@ async function initCloudbase() {
 
     const loginResult = await Promise.race([loginPromise, timeoutPromise]);
     clearTimeout(timeoutId);
-    diag('匿名登录成功 (uid: ' + (loginResult && loginResult.user && loginResult.user.uid ? loginResult.user.uid.slice(0,8)+'...' : '?') + ')', 'ok');
 
+    // v2.x 返回 { data, error } 结构
+    if (loginResult && loginResult.error) {
+      throw new Error('登录失败: ' + loginResult.error.message);
+    }
+    const uid = loginResult && loginResult.data && loginResult.data.user && loginResult.data.user.uid
+      ? loginResult.data.user.uid.slice(0,8)+'...' : '?';
+    diag('匿名登录成功 (uid: ' + uid + ')', 'ok');
+
+    // Step 4: 获取数据库实例
+    diag('获取数据库实例...');
     db = app.database();
+    if (!db) throw new Error('获取数据库实例失败');
 
-    // Step 4: 查询数据库
+    // Step 5: 查询数据库
     diag('查询云端数据库...');
     document.getElementById('loadingText').textContent = '正在同步数据...';
 
