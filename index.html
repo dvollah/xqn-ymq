@@ -886,6 +886,12 @@ async function initApi() {
       apiFetch('pending')
     ]);
     state.matches = matches.map(doc => ({ ...doc, _id: doc._id }));
+        // Auto-fill subtypes for old matches that don't have teamASubType/teamBSubType
+    state.matches.forEach(m => {
+      if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
+      if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
+    });
+
     state.pendingMatches = pending.map(doc => ({ ...doc, _id: doc._id }));
 
     clearTimeout(showSkipBtn);
@@ -1034,6 +1040,12 @@ function loadLocalFallbackData() {
       const d = JSON.parse(raw);
       state.players = (d.players || []).map(p => ({ ...p, id: p.id || p._id }));
       state.matches = d.matches || [];
+            // Auto-fill subtypes for old matches
+      state.matches.forEach(m => {
+        if (!m.teamASubType) m.teamASubType = detectSideSubType(m.teamA);
+        if (!m.teamBSubType) m.teamBSubType = detectSideSubType(m.teamB);
+      });
+
       state.pendingMatches = d.pendingMatches || [];
     }
   } catch(e) {
