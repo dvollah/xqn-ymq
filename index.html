@@ -576,10 +576,12 @@ select.form-input {
 </head>
 <body>
 
-<!-- 加载中 -->
+<!-- 加载中 / 诊断面板 -->
 <div class="loading-overlay" id="loadingOverlay">
-  <div class="loading-spinner"></div>
+  <div class="loading-spinner" id="loadingSpinner"></div>
   <div class="loading-text" id="loadingText">正在连接云端...</div>
+  <div id="diagLog" style="margin-top:16px;font-size:12px;color:var(--text2);text-align:left;max-width:320px;line-height:1.8;"></div>
+  <div id="diagHint" style="display:none;margin-top:12px;padding:10px 14px;background:var(--warn-light);border-radius:var(--radius-sm);font-size:12px;color:#92400E;text-align:left;max-width:320px;line-height:1.7;"></div>
   <button class="btn btn-outline" id="skipWaitBtn" style="margin-top:20px;display:none;"
     onclick="clearTimeout(window.__cloudbaseTimeout); fallbackToOffline();">
     ⚡ 跳过等待，进入离线模式
@@ -878,6 +880,30 @@ let db = null;
 let cloudbaseReady = false;
 let isOfflineMode = false;
 
+// 诊断日志
+let __diagLog = [];
+function diag(msg, type) {
+  __diagLog.push({ msg, type: type || 'info', time: Date.now() });
+  console.log('[DIAG]', msg);
+  const el = document.getElementById('diagLog');
+  if (el) {
+    const icon = type === 'ok' ? '✅' : type === 'err' ? '❌' : type === 'warn' ? '⚠️' : '⏳';
+    el.innerHTML = __diagLog.map(d => icon + ' ' + d.msg).join('<br>');
+  }
+  if (type === 'err' || type === 'warn') {
+    const hint = document.getElementById('diagHint');
+    if (hint) hint.style.display = 'block';
+  }
+}
+
+function diagHint(html) {
+  const hint = document.getElementById('diagHint');
+  if (hint) {
+    hint.innerHTML = html;
+    hint.style.display = 'block';
+  }
+}
+
 async function initCloudbase() {
   const envId = CLOUDBASE_ENV_ID;
   if (!envId) {
@@ -896,63 +922,104 @@ async function initCloudbase() {
   }, 3000);
 
   try {
+    // Step 1: SDK 检测
+    diag('检测 CloudBase SDK...');
     if (typeof cloudbase === 'undefined' || typeof cloudbase.init !== 'function') {
-      throw new Error('SDK 未加载，cloudbase 全局变量不可用');
+      diag('CloudBase SDK 未加载（CDN 可能被拦截）', 'err');
+      diagHint('💡 <b>SDK 加载失败</b><br>请检查：浏览器是否拦截了 CDN 脚本<br>地址：static.cloudbase.net');
+      throw new Error('SDK 未加载');
     }
+    diag('CloudBase SDK 加载成功 (v' + (cloudbase.version || '?') + ')', 'ok');
 
-    document.getElementById('loadingText').textContent = '正在连接云端数据库...';
-
-    const app = cloudbase.init({
-      env: envId,
-      region: 'ap-shanghai'
-    });
-
+    // Step 2: 初始化
+    diag('初始化 CloudBase 环境: ' + envId);
+    const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
     if (!app || typeof app.auth !== 'function') {
+      diag('CloudBase 初始化返回异常', 'err');
       throw new Error('CloudBase 初始化返回异常');
     }
+    diag('CloudBase 实例创建成功', 'ok');
 
-    document.getElementById('loadingText').textContent = '正在登录...';
+    // Step 3: 匿名登录
+    diag('匿名登录中...');
+    document.getElementById('loadingText').textContent = '正在连接云端...';
     const loginPromise = app.auth({ persistence: 'local' }).signInAnonymously();
     const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('连接超时（8秒）')), CONNECT_TIMEOUT);
+      timeoutId = setTimeout(() => reject(new Error('登录超时（8秒）')), CONNECT_TIMEOUT);
     });
     window.__cloudbaseTimeout = timeoutId;
 
-    await Promise.race([loginPromise, timeoutPromise]);
+    const loginResult = await Promise.race([loginPromise, timeoutPromise]);
     clearTimeout(timeoutId);
-    clearTimeout(showSkipBtn);
-    if (skipBtn) skipBtn.style.display = 'none';
+    diag('匿名登录成功 (uid: ' + (loginResult && loginResult.user && loginResult.user.uid ? loginResult.user.uid.slice(0,8)+'...' : '?') + ')', 'ok');
 
     db = app.database();
-    cloudbaseReady = true;
-    isOfflineMode = false;
 
-    document.getElementById('syncBadge').textContent = '☁️ 云端同步';
-    document.getElementById('syncBadge').className = 'sync-badge online';
-    document.getElementById('loadingOverlay').classList.add('hidden');
+    // Step 4: 查询数据库
+    diag('查询云端数据库...');
+    document.getElementById('loadingText').textContent = '正在同步数据...';
 
     const cloudDataLoaded = await loadCloudData();
     if (!cloudDataLoaded) {
-      // 云端数据库不可用（如安全规则限制），自动降级为离线模式
-      console.warn('CloudBase 数据库权限受限，切换离线模式');
-      isOfflineMode = true;
-      cloudbaseReady = false;
-      db = null;
-      loadLocalFallbackData();
-      document.getElementById('syncBadge').textContent = '📴 离线模式';
-      document.getElementById('syncBadge').className = 'sync-badge offline';
+      // 加载失败，诊断原因
+      diag('数据库查询失败 — 常见原因：安全域名未配置或权限不足', 'err');
+      diagHint(
+        '🔧 <b>修复步骤：</b><br>' +
+        '1️⃣ 打开 <a href="https://console.cloud.tencent.com/tcb/env/safety?envId=' + envId + '" target="_blank" style="color:var(--info);">CloudBase 安全域名</a><br>' +
+        '2️⃣ 添加 <b>ymq.thexqn.net</b> 到 WEB 安全域名<br>' +
+        '3️⃣ 保存后刷新本页面<br>' +
+        '4️⃣ 如仍不行，请 <b>清除 Cloudflare 缓存</b>'
+      );
+
+      // 等待 5 秒让用户看到诊断信息，然后自动降级
+      document.getElementById('loadingSpinner').style.display = 'none';
+      document.getElementById('loadingText').textContent = '⚠️ 云端数据库不可用';
+      if (skipBtn) skipBtn.style.display = '';
+
+      setTimeout(() => {
+        isOfflineMode = true;
+        cloudbaseReady = false;
+        db = null;
+        loadLocalFallbackData();
+        document.getElementById('syncBadge').textContent = '📴 离线模式';
+        document.getElementById('syncBadge').className = 'sync-badge offline';
+        document.getElementById('loadingOverlay').classList.add('hidden');
+        init();
+      }, 5000);
+      return;
     }
+
+    // 全部成功
+    clearTimeout(showSkipBtn);
+    if (skipBtn) skipBtn.style.display = 'none';
+    diag('数据同步完成 (' + state.players.length + ' 球员, ' + state.matches.length + ' 比赛)', 'ok');
+
+    cloudbaseReady = true;
+    isOfflineMode = false;
+    document.getElementById('syncBadge').textContent = '☁️ 云端同步';
+    document.getElementById('syncBadge').className = 'sync-badge online';
+    document.getElementById('loadingOverlay').classList.add('hidden');
     init();
+
   } catch (err) {
     clearTimeout(timeoutId);
     clearTimeout(showSkipBtn);
     if (skipBtn) skipBtn.style.display = 'none';
     console.error('CloudBase 连接失败:', err);
     const errMsg = (err && (err.message || err.toString())) || '未知错误';
-    document.getElementById('loadingText').innerHTML = '⚠️ ' + errMsg + '<br><small style="font-size:12px;opacity:0.7">3秒后自动切换离线模式</small>';
-    setTimeout(() => {
-      fallbackToOffline();
-    }, 3000);
+    diag(errMsg, 'err');
+
+    // 根据错误类型给出不同提示
+    if (errMsg.includes('超时') || errMsg.includes('timeout')) {
+      diagHint('🌐 <b>网络超时</b><br>可能原因：CloudBase 服务不可达<br>请检查网络或稍后重试');
+    } else if (errMsg.includes('PERMISSION') || errMsg.includes('forbidden') || errMsg.includes('unauthorized')) {
+      diagHint('🔐 <b>权限被拒绝</b><br>请确认：<br>1️⃣ WEB 安全域名已添加 ymq.thexqn.net<br>2️⃣ 数据库权限已设为"所有用户可读"');
+    } else {
+      diagHint('⚠️ 连接失败，3 秒后自动切换离线模式');
+    }
+
+    document.getElementById('loadingText').innerHTML = '⚠️ ' + errMsg;
+    setTimeout(() => fallbackToOffline(), 3000);
   }
 }
 
@@ -1012,7 +1079,11 @@ async function loadCloudData() {
     state.pendingMatches = (pendingRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
     return true;
   } catch (err) {
-    console.warn('加载云端数据失败，切换本地模式:', (err && err.message) || err);
+    const errDetail = (err && (err.message || err.code || err.toString())) || '未知错误';
+    console.warn('加载云端数据失败:', errDetail);
+    diag('数据库查询失败: ' + errDetail, 'err');
+    // 将完整错误存到 window 方便调试
+    window.__diagError = err;
     return false;
   }
 }
