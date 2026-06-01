@@ -884,11 +884,13 @@ let isOfflineMode = false;
 let __diagLog = [];
 function diag(msg, type) {
   __diagLog.push({ msg, type: type || 'info', time: Date.now() });
-  console.log('[DIAG]', msg);
+  console.log('[DIAG]', (type||'info').toUpperCase(), msg);
   const el = document.getElementById('diagLog');
   if (el) {
-    const icon = type === 'ok' ? '✅' : type === 'err' ? '❌' : type === 'warn' ? '⚠️' : '⏳';
-    el.innerHTML = __diagLog.map(d => icon + ' ' + d.msg).join('<br>');
+    el.innerHTML = __diagLog.map(d => {
+      const icon = d.type === 'ok' ? '✅' : d.type === 'err' ? '❌' : d.type === 'warn' ? '⚠️' : '⏳';
+      return icon + ' ' + d.msg;
+    }).join('<br>');
   }
   if (type === 'err' || type === 'warn') {
     const hint = document.getElementById('diagHint');
@@ -902,6 +904,65 @@ function diagHint(html) {
     hint.innerHTML = html;
     hint.style.display = 'block';
   }
+}
+
+// 自适应匿名登录：自动检测 SDK 版本并使用正确的 API
+async function adaptiveSignIn(app, timeoutMs) {
+  // 检测可用方法
+  const authObj = typeof app.auth === 'function' ? app.auth() : app.auth;
+  const authStatic = app.auth;
+
+  const methods = [];
+  if (authObj && typeof authObj.signInAnonymously === 'function') methods.push('auth().signInAnonymously');
+  if (authStatic && typeof authStatic.signInAnonymously === 'function') methods.push('auth.signInAnonymously');
+  if (authObj && typeof authObj.anonymousAuthProvider === 'function') methods.push('auth().anonymousAuthProvider().signIn()');
+  if (authObj && typeof authObj.signIn === 'function') methods.push('auth().signIn');
+
+  diag('SDK 认证方式探测完成 (' + methods.length + ' 种可用)', methods.length > 0 ? 'ok' : 'err');
+  if (methods.length === 0) {
+    // 打印 app 对象的关键属性帮助调试
+    const keys = [];
+    for (const k in app) { try { keys.push(k); } catch(e) {} }
+    diag('app 可用属性: ' + keys.slice(0,8).join(', '), 'warn');
+    if (authObj) {
+      const akeys = [];
+      for (const k in authObj) { try { akeys.push(k); } catch(e) {} }
+      diag('auth 可用属性: ' + akeys.slice(0,8).join(', '), 'warn');
+    }
+    throw new Error('未找到可用的认证方法');
+  }
+
+  let lastErr = null;
+  // 按优先级尝试每种方法
+  for (const method of methods) {
+    try {
+      diag('尝试认证方式: ' + method);
+      let result;
+      if (method === 'auth().signInAnonymously') {
+        result = await authObj.signInAnonymously();
+      } else if (method === 'auth.signInAnonymously') {
+        result = await authStatic.signInAnonymously();
+      } else if (method === 'auth().anonymousAuthProvider().signIn()') {
+        result = await authObj.anonymousAuthProvider().signIn();
+      } else if (method === 'auth().signIn') {
+        result = await authObj.signIn({ loginType: 'ANONYMOUS' });
+      }
+
+      // 成功后提取 uid
+      let uid = '?';
+      if (result) {
+        if (result.user && result.user.uid) uid = result.user.uid.slice(0,8)+'...';
+        else if (result.data && result.data.user && result.data.user.uid) uid = result.data.user.uid.slice(0,8)+'...';
+        else if (result.uid) uid = result.uid.slice(0,8)+'...';
+      }
+      diag('认证成功 (uid: ' + uid + ')', 'ok');
+      return result;
+    } catch (e) {
+      lastErr = e;
+      diag(method + ' 失败: ' + (e.message||e), 'warn');
+    }
+  }
+  throw lastErr || new Error('所有认证方式均失败');
 }
 
 async function initCloudbase() {
@@ -926,82 +987,57 @@ async function initCloudbase() {
     diag('检测 CloudBase SDK...');
     if (typeof cloudbase === 'undefined' || typeof cloudbase.init !== 'function') {
       diag('CloudBase SDK 未加载（CDN 可能被拦截）', 'err');
-      diagHint('💡 <b>SDK 加载失败</b><br>请检查：浏览器是否拦截了 CDN 脚本<br>地址：static.cloudbase.net');
+      diagHint('CDN 脚本加载失败，请检查浏览器是否拦截了 static.cloudbase.net');
       throw new Error('SDK 未加载');
     }
-    diag('CloudBase SDK 加载成功 (v' + (cloudbase.version || '?') + ')', 'ok');
+    diag('CloudBase SDK 加载成功', 'ok');
 
     // Step 2: 初始化
-    diag('初始化 CloudBase 环境: ' + envId);
+    diag('初始化环境: ' + envId);
     const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-    // v1.x: app.auth() 返回 auth 实例
-    if (!app || typeof app.auth !== 'function') {
-      diag('CloudBase 初始化返回异常', 'err');
-      throw new Error('CloudBase 初始化返回异常');
-    }
-    diag('CloudBase 实例创建成功', 'ok');
+    if (!app) { diag('初始化返回 null', 'err'); throw new Error('初始化失败'); }
+    diag('环境实例创建成功', 'ok');
 
-    // Step 3: 匿名登录 (v1.6.x API)
-    diag('匿名登录中...');
-    document.getElementById('loadingText').textContent = '正在连接云端...';
-
-    const loginPromise = app.auth({ persistence: 'local' }).signInAnonymously();
+    // Step 3: 自适应匿名登录
+    document.getElementById('loadingText').textContent = '正在登录...';
+    const loginPromise = adaptiveSignIn(app, CONNECT_TIMEOUT);
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error('登录超时（8秒）')), CONNECT_TIMEOUT);
     });
     window.__cloudbaseTimeout = timeoutId;
-
-    const loginResult = await Promise.race([loginPromise, timeoutPromise]);
+    await Promise.race([loginPromise, timeoutPromise]);
     clearTimeout(timeoutId);
-    // v1.x 返回 loginState 对象，含 user.uid
-    const uid = (loginResult && loginResult.user && loginResult.user.uid)
-      ? loginResult.user.uid.slice(0,8)+'...' : '?';
-    diag('匿名登录成功 (uid: ' + uid + ')', 'ok');
 
     // Step 4: 获取数据库实例
     diag('获取数据库实例...');
     db = app.database();
     if (!db) throw new Error('获取数据库实例失败');
+    diag('数据库实例就绪', 'ok');
 
     // Step 5: 查询数据库
-    diag('查询云端数据库...');
+    diag('查询云端数据...');
     document.getElementById('loadingText').textContent = '正在同步数据...';
 
     const cloudDataLoaded = await loadCloudData();
     if (!cloudDataLoaded) {
-      // 加载失败，诊断原因
-      diag('数据库查询失败 — 常见原因：安全域名未配置或权限不足', 'err');
+      diag('数据库查询被拒绝（权限/安全域名？）', 'err');
       diagHint(
-        '🔧 <b>修复步骤：</b><br>' +
-        '1️⃣ 打开 <a href="https://console.cloud.tencent.com/tcb/env/safety?envId=' + envId + '" target="_blank" style="color:var(--info);">CloudBase 安全域名</a><br>' +
-        '2️⃣ 添加 <b>ymq.thexqn.net</b> 到 WEB 安全域名<br>' +
-        '3️⃣ 保存后刷新本页面<br>' +
-        '4️⃣ 如仍不行，请 <b>清除 Cloudflare 缓存</b>'
+        '🔧 <b>可能原因：</b><br>' +
+        '1️⃣ <a href="https://console.cloud.tencent.com/tcb/env/safety?envId=' + envId + '" target="_blank">安全域名</a>确认已添加 ymq.thexqn.net<br>' +
+        '2️⃣ 集合权限设为"所有用户可读"<br>' +
+        '3️⃣ 集合名确认: players / matches / pending_matches'
       );
-
-      // 等待 5 秒让用户看到诊断信息，然后自动降级
       document.getElementById('loadingSpinner').style.display = 'none';
-      document.getElementById('loadingText').textContent = '⚠️ 云端数据库不可用';
+      document.getElementById('loadingText').textContent = '⚠️ 数据库不可达，5秒后进入离线模式';
       if (skipBtn) skipBtn.style.display = '';
-
-      setTimeout(() => {
-        isOfflineMode = true;
-        cloudbaseReady = false;
-        db = null;
-        loadLocalFallbackData();
-        document.getElementById('syncBadge').textContent = '📴 离线模式';
-        document.getElementById('syncBadge').className = 'sync-badge offline';
-        document.getElementById('loadingOverlay').classList.add('hidden');
-        init();
-      }, 5000);
+      setTimeout(() => fallbackToOffline(), 5000);
       return;
     }
 
-    // 全部成功
+    // 全部成功 🎉
     clearTimeout(showSkipBtn);
     if (skipBtn) skipBtn.style.display = 'none';
-    diag('数据同步完成 (' + state.players.length + ' 球员, ' + state.matches.length + ' 比赛)', 'ok');
-
+    diag('数据同步完成 (' + state.players.length + ' 人, ' + state.matches.length + ' 场)', 'ok');
     cloudbaseReady = true;
     isOfflineMode = false;
     document.getElementById('syncBadge').textContent = '☁️ 云端同步';
@@ -1013,20 +1049,20 @@ async function initCloudbase() {
     clearTimeout(timeoutId);
     clearTimeout(showSkipBtn);
     if (skipBtn) skipBtn.style.display = 'none';
+    const errMsg = (err && (err.message || err.toString())) || '未知';
+    diag('最终错误: ' + errMsg, 'err');
     console.error('CloudBase 连接失败:', err);
-    const errMsg = (err && (err.message || err.toString())) || '未知错误';
-    diag(errMsg, 'err');
 
-    // 根据错误类型给出不同提示
     if (errMsg.includes('超时') || errMsg.includes('timeout')) {
-      diagHint('🌐 <b>网络超时</b><br>可能原因：CloudBase 服务不可达<br>请检查网络或稍后重试');
-    } else if (errMsg.includes('PERMISSION') || errMsg.includes('forbidden') || errMsg.includes('unauthorized')) {
-      diagHint('🔐 <b>权限被拒绝</b><br>请确认：<br>1️⃣ WEB 安全域名已添加 ymq.thexqn.net<br>2️⃣ 数据库权限已设为"所有用户可读"');
+      diagHint('🌐 网络超时，请检查网络后重试');
+    } else if (errMsg.includes('PERMISSION') || errMsg.includes('forbidden')) {
+      diagHint('🔐 权限被拒，请检查安全域名和数据库权限');
+    } else if (errMsg.includes('未找到可用的认证')) {
+      diagHint('📦 SDK 版本不兼容，需更换 CDN 版本');
     } else {
-      diagHint('⚠️ 连接失败，3 秒后自动切换离线模式');
+      diagHint('3 秒后自动切换离线模式');
     }
-
-    document.getElementById('loadingText').innerHTML = '⚠️ ' + errMsg;
+    document.getElementById('loadingText').textContent = '⚠️ ' + errMsg;
     setTimeout(() => fallbackToOffline(), 3000);
   }
 }
