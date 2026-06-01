@@ -83,6 +83,15 @@ exports.main = async (event, context) => {
           return ok(res.data || []);
         }
         if (httpMethod === 'POST') {
+          // 如果 URL 中包含 id，视为更新操作
+          if (id) {
+            const updateData = {};
+            if (data.name !== undefined) updateData.name = (data.name || '').trim();
+            if (data.gender !== undefined) updateData.gender = data.gender;
+            if (Object.keys(updateData).length === 0) return fail('无有效更新字段');
+            await db.collection(COL_PLAYERS).doc(id).update(updateData);
+            return ok({ updated: id });
+          }
           if (!data.name) return fail('缺少 name 字段');
           const player = {
             id: data.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
