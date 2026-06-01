@@ -1910,6 +1910,7 @@ function renderRank(filter) {
   list.innerHTML = renderRankRows(ranked);
 }
 
+function renderTotalWinRank() {
   const list = document.getElementById('totalWinRankList');
   const ranked = calcPlayerStats(state.matches);
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
@@ -2027,6 +2028,7 @@ function renderPartners(filter) {
   }
 }
 
+function renderTotalPartnerRank() {
   const list = document.getElementById('totalPartnerRankList');
   const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
   const ranked = calcPartnerStats(matches);
