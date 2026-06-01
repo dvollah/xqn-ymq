@@ -6,6 +6,7 @@
  * 路由:
  *   GET    /players           — 获取所有球员
  *   POST   /players           — 添加球员 { name, gender }
+ *   PUT    /players/:id       — 更新球员
  *   DELETE /players/:id       — 删除球员
  *   GET    /matches           — 获取所有比赛（按 createdAt 降序）
  *   POST   /matches           — 添加比赛
@@ -91,6 +92,14 @@ exports.main = async (event, context) => {
           };
           const res = await db.collection(COL_PLAYERS).add(player);
           return ok({ ...player, _id: res.id });
+        }
+        if (httpMethod === 'PUT' && id) {
+          const updateData = {};
+          if (data.name !== undefined) updateData.name = (data.name || '').trim();
+          if (data.gender !== undefined) updateData.gender = data.gender;
+          if (Object.keys(updateData).length === 0) return fail('无有效更新字段');
+          await db.collection(COL_PLAYERS).doc(id).update(updateData);
+          return ok({ updated: id });
         }
         if (httpMethod === 'DELETE' && id) {
           await db.collection(COL_PLAYERS).doc(id).remove();
