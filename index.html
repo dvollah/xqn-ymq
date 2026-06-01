@@ -883,15 +883,36 @@ async function initCloudbase() {
     return;
   }
 
-  document.getElementById('loadingText').textContent = '正在连接云端数据库...';
+  // 加一个 8 秒硬超时，防止永远转圈
+  const CONNECT_TIMEOUT = 8000;
+  let timeoutId;
 
   try {
+    // 先检查 cloudbase 全局变量是否可用
+    if (typeof cloudbase === 'undefined' || typeof cloudbase.init !== 'function') {
+      throw new Error('SDK 未加载，cloudbase 全局变量不可用');
+    }
+
+    document.getElementById('loadingText').textContent = '正在连接云端数据库...';
+
     const app = cloudbase.init({
-      env: envId
+      env: envId,
+      region: 'ap-shanghai'
     });
 
-    // 匿名登录
-    await app.auth({ persistence: 'local' }).signInAnonymously();
+    if (!app || typeof app.auth !== 'function') {
+      throw new Error('CloudBase 初始化返回异常');
+    }
+
+    // 匿名登录（带超时）
+    document.getElementById('loadingText').textContent = '正在登录...';
+    const loginPromise = app.auth({ persistence: 'local' }).signInAnonymously();
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('连接超时（8秒）')), CONNECT_TIMEOUT);
+    });
+
+    await Promise.race([loginPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
 
     db = app.database();
     cloudbaseReady = true;
@@ -905,9 +926,10 @@ async function initCloudbase() {
     await loadCloudData();
     init();
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('CloudBase 连接失败:', err);
-    const errMsg = err.message || err.toString();
-    document.getElementById('loadingText').innerHTML = '连接失败: ' + errMsg + '<br><small style="font-size:12px;opacity:0.7">3秒后切换离线模式</small>';
+    const errMsg = (err && (err.message || err.toString())) || '未知错误';
+    document.getElementById('loadingText').innerHTML = '⚠️ ' + errMsg + '<br><small style="font-size:12px;opacity:0.7">3秒后自动切换离线模式</small>';
     setTimeout(() => {
       fallbackToOffline();
     }, 3000);
