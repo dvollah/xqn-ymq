@@ -669,12 +669,12 @@ select.form-input {
     <div class="score-board">
       <div class="score-side">
         <div class="team-label">A方</div>
-        <input type="number" id="scoreAInput" value="0" min="0" max="99" class="score-input score-input-a">
+        <input type="number" id="scoreAInput" value="" placeholder="A方得分" min="0" max="99" class="score-input score-input-a">
       </div>
       <div class="score-vs">:</div>
       <div class="score-side">
         <div class="team-label">B方</div>
-        <input type="number" id="scoreBInput" value="0" min="0" max="99" class="score-input score-input-b">
+        <input type="number" id="scoreBInput" value="" placeholder="B方得分" min="0" max="99" class="score-input score-input-b">
       </div>
     </div>
     <div id="serveReceiveArea" style="display:none;">
@@ -1539,8 +1539,8 @@ function addGame() {
     referee = refSel.value;
   }
   currentMatch.games.push({ a: sA, b: sB, server, receiver, referee });
-  document.getElementById('scoreAInput').value = 0;
-  document.getElementById('scoreBInput').value = 0;
+  document.getElementById('scoreAInput').value = '';
+  document.getElementById('scoreBInput').value = '';
   if (refSel) refSel.value = '';
   if (refManual) { refManual.value = ''; refManual.style.display = 'none'; }
   document.getElementById('gamesCard').style.display = 'block';
@@ -1683,8 +1683,8 @@ function resetCurrent() {
   document.getElementById('teamBSubType').textContent = '';
   document.getElementById('matchTime').value = '';
   document.getElementById('matchLocation').value = '';
-  document.getElementById('scoreAInput').value = 0;
-  document.getElementById('scoreBInput').value = 0;
+  document.getElementById('scoreAInput').value = '';
+  document.getElementById('scoreBInput').value = '';
   const cf = document.getElementById('currentReferee');
   if (cf) cf.value = '';
   const gl = document.getElementById('gamesList');
@@ -2125,6 +2125,11 @@ function showToast(msg) {
 
 function renderAll() {
   updateTeamDisplay();
+  renderHistory();
+  renderPlayers();
+  renderStats();
+  updateAdminUI();
+  if (isAdmin) renderReview();
 }
 
 // ==================== Start ====================
