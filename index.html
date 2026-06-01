@@ -785,6 +785,12 @@ select.form-input {
   </div>
   <div class="card">
     <div class="card-title">🏅 搭档总胜率排行（综合）</div>
+    <div class="stats-header" id="totalPartnerTypeFilter" style="flex-wrap:wrap;">
+      <div class="stats-tab active" data-filter="all">全部双打</div>
+      <div class="stats-tab" data-filter="男双">· 男双</div>
+      <div class="stats-tab" data-filter="混双">· 混双</div>
+      <div class="stats-tab" data-filter="女双">· 女双</div>
+    </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">所有双打组合按胜率+场次综合排名</div>
     <div id="totalPartnerRankList"></div>
   </div>
@@ -1252,6 +1258,7 @@ function init() {
   setupFilterTabs('historyFilter', renderHistory);
   setupFilterTabs('statsFilter', (f) => { renderRank(f); });
   setupFilterTabs('partnerTypeFilter', (f) => { renderPartners(f); });
+  setupFilterTabs('totalPartnerTypeFilter', (f) => { renderTotalPartnerRank(f); });
 
   document.getElementById('newPlayerName').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addPlayer();
@@ -1912,7 +1919,8 @@ function renderStats() {
 
   const partnerFilter = getActiveFilter('partnerTypeFilter');
   renderPartners(partnerFilter);
-  renderTotalPartnerRank();
+  const totalPartnerFilter = getActiveFilter('totalPartnerTypeFilter');
+  renderTotalPartnerRank(totalPartnerFilter);
 }
 
 function renderRank(filter) {
@@ -2055,10 +2063,15 @@ function renderPartners(filter) {
   }
 }
 
-function renderTotalPartnerRank() {
+function renderTotalPartnerRank(filter) {
   const list = document.getElementById('totalPartnerRankList');
-  const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
-  const ranked = calcPartnerStats(matches);
+  let ranked;
+  if (!filter || filter === 'all') {
+    const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
+    ranked = calcPartnerStats(matches);
+  } else {
+    ranked = calcPartnerStatsBySubType(filter);
+  }
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
   list.innerHTML = renderPartnerRows(ranked);
 }
