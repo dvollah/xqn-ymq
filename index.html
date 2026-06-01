@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>🏸 老朱和他的羽毛球朋友们</title>
-<!-- CloudBase Web SDK v2 -->
-<script src="https://static.cloudbase.net/cloudbase-js-sdk/2.15.0/cloudbase.full.js"></script>
+<!-- 数据通过 CloudBase 云函数 API 同步 -->
 <style>
 :root {
   --primary: #10B981;
@@ -580,32 +579,10 @@ select.form-input {
 <div class="loading-overlay" id="loadingOverlay">
   <div class="loading-spinner" id="loadingSpinner"></div>
   <div class="loading-text" id="loadingText">正在连接云端...</div>
-  <div id="diagLog" style="margin-top:16px;font-size:12px;color:var(--text2);text-align:left;max-width:320px;line-height:1.8;"></div>
-  <div id="diagHint" style="display:none;margin-top:12px;padding:10px 14px;background:var(--warn-light);border-radius:var(--radius-sm);font-size:12px;color:#92400E;text-align:left;max-width:320px;line-height:1.7;"></div>
   <button class="btn btn-outline" id="skipWaitBtn" style="margin-top:20px;display:none;"
-    onclick="clearTimeout(window.__cloudbaseTimeout); fallbackToOffline();">
+    onclick="fallbackToOffline();">
     ⚡ 跳过等待，进入离线模式
   </button>
-</div>
-
-<!-- 配置引导（首次使用） -->
-<div class="setup-overlay" id="setupOverlay">
-  <div class="setup-card">
-    <h2>🏸 首次配置</h2>
-    <div class="desc">
-      请先在腾讯云 CloudBase 创建一个环境，然后填写环境 ID 以启用数据云同步。
-    </div>
-    <label style="font-size:13px;font-weight:600;">CloudBase 环境 ID</label>
-    <input class="form-input" id="envIdInput" placeholder="例如：ymq-xxxxx" style="margin-top:6px;">
-    <div class="steps">
-      1️⃣ 前往 <a href="https://console.cloud.tencent.com/tcb" target="_blank">腾讯云 CloudBase 控制台</a><br>
-      2️⃣ 新建环境（按量计费，有免费额度）<br>
-      3️⃣ 复制环境 ID 填入上方<br>
-      4️⃣ 在「安全配置」中添加本站域名
-    </div>
-    <button class="btn btn-primary btn-block" onclick="saveEnvId()" style="margin-top:12px;">💾 保存并连接</button>
-    <button class="btn btn-outline btn-block" onclick="useOfflineMode()" style="margin-top:8px;">📴 离线模式（数据存本地）</button>
-  </div>
 </div>
 
 <div class="top-bar">
@@ -867,286 +844,98 @@ select.form-input {
 <div class="toast" id="toast"></div>
 
 <script>
-// ==================== CloudBase 配置 ====================
-// ⚠️ 请在腾讯云 CloudBase 控制台创建环境后，将环境 ID 填在这里
-// 或者在页面首次加载时通过配置界面填写
-const CLOUDBASE_ENV_ID = localStorage.getItem('ymq_cloudbase_env_id') || 'ymq-d1g1qdr0d4028ee0b';
+// ==================== API 配置 ====================
+const ENV_ID = 'ymq-d1g1qdr0d4028ee0b';
+const API_BASE = 'https://' + ENV_ID + '.ap-shanghai.app.tcloudbase.com/ymq-api';
 
 // ==================== 管理员配置 ====================
 const ADMIN_PASSWORD = 'ymq2024';
 
-// ==================== CloudBase 初始化 ====================
-let db = null;
-let cloudbaseReady = false;
+// ==================== API 状态 ====================
+let apiOnline = false;   // 云函数 API 是否可达
 let isOfflineMode = false;
 
-// 诊断日志
-let __diagLog = [];
-function diag(msg, type) {
-  __diagLog.push({ msg, type: type || 'info', time: Date.now() });
-  console.log('[DIAG]', (type||'info').toUpperCase(), msg);
-  const el = document.getElementById('diagLog');
-  if (el) {
-    el.innerHTML = __diagLog.map(d => {
-      const icon = d.type === 'ok' ? '✅' : d.type === 'err' ? '❌' : d.type === 'warn' ? '⚠️' : '⏳';
-      return icon + ' ' + d.msg;
-    }).join('<br>');
-  }
-  if (type === 'err' || type === 'warn') {
-    const hint = document.getElementById('diagHint');
-    if (hint) hint.style.display = 'block';
-  }
+// ==================== 通用 fetch 封装 ====================
+async function apiFetch(path, options) {
+  const url = API_BASE + '/' + path;
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  const json = await res.json();
+  if (json.code !== 0) throw new Error(json.msg || 'API 错误');
+  return json.data;
 }
 
-function diagHint(html) {
-  const hint = document.getElementById('diagHint');
-  if (hint) {
-    hint.innerHTML = html;
-    hint.style.display = 'block';
-  }
-}
-
-// 自适应匿名登录：自动检测 SDK 版本并使用正确的 API
-async function adaptiveSignIn(app, timeoutMs) {
-  // 检测可用方法
-  const authObj = typeof app.auth === 'function' ? app.auth() : app.auth;
-  const authStatic = app.auth;
-
-  const methods = [];
-  if (authObj && typeof authObj.signInAnonymously === 'function') methods.push('auth().signInAnonymously');
-  if (authStatic && typeof authStatic.signInAnonymously === 'function') methods.push('auth.signInAnonymously');
-  if (authObj && typeof authObj.anonymousAuthProvider === 'function') methods.push('auth().anonymousAuthProvider().signIn()');
-  if (authObj && typeof authObj.signIn === 'function') methods.push('auth().signIn');
-
-  diag('SDK 认证方式探测完成 (' + methods.length + ' 种可用)', methods.length > 0 ? 'ok' : 'err');
-  if (methods.length === 0) {
-    // 打印 app 对象的关键属性帮助调试
-    const keys = [];
-    for (const k in app) { try { keys.push(k); } catch(e) {} }
-    diag('app 可用属性: ' + keys.slice(0,8).join(', '), 'warn');
-    if (authObj) {
-      const akeys = [];
-      for (const k in authObj) { try { akeys.push(k); } catch(e) {} }
-      diag('auth 可用属性: ' + akeys.slice(0,8).join(', '), 'warn');
-    }
-    throw new Error('未找到可用的认证方法');
-  }
-
-  let lastErr = null;
-  // 按优先级尝试每种方法
-  for (const method of methods) {
-    try {
-      diag('尝试认证方式: ' + method);
-      let result;
-      if (method === 'auth().signInAnonymously') {
-        result = await authObj.signInAnonymously();
-      } else if (method === 'auth.signInAnonymously') {
-        result = await authStatic.signInAnonymously();
-      } else if (method === 'auth().anonymousAuthProvider().signIn()') {
-        result = await authObj.anonymousAuthProvider().signIn();
-      } else if (method === 'auth().signIn') {
-        result = await authObj.signIn({ loginType: 'ANONYMOUS' });
-      }
-
-      // 成功后提取 uid
-      let uid = '?';
-      if (result) {
-        if (result.user && result.user.uid) uid = result.user.uid.slice(0,8)+'...';
-        else if (result.data && result.data.user && result.data.user.uid) uid = result.data.user.uid.slice(0,8)+'...';
-        else if (result.uid) uid = result.uid.slice(0,8)+'...';
-      }
-      diag('认证成功 (uid: ' + uid + ')', 'ok');
-      return result;
-    } catch (e) {
-      lastErr = e;
-      diag(method + ' 失败: ' + (e.message||e), 'warn');
-    }
-  }
-  throw lastErr || new Error('所有认证方式均失败');
-}
-
-async function initCloudbase() {
-  const envId = CLOUDBASE_ENV_ID;
-  if (!envId) {
-    document.getElementById('loadingOverlay').classList.add('hidden');
-    document.getElementById('setupOverlay').classList.add('show');
-    return;
-  }
-
-  const CONNECT_TIMEOUT = 8000;
-  let timeoutId;
-
-  // 3 秒后显示「跳过等待」按钮
+// ==================== 初始化 ====================
+async function initApi() {
   const skipBtn = document.getElementById('skipWaitBtn');
   const showSkipBtn = setTimeout(() => {
     if (skipBtn) skipBtn.style.display = '';
   }, 3000);
 
   try {
-    // Step 1: SDK 检测
-    diag('检测 CloudBase SDK...');
-    if (typeof cloudbase === 'undefined' || typeof cloudbase.init !== 'function') {
-      diag('CloudBase SDK 未加载（CDN 可能被拦截）', 'err');
-      diagHint('CDN 脚本加载失败，请检查浏览器是否拦截了 static.cloudbase.net');
-      throw new Error('SDK 未加载');
-    }
-    diag('CloudBase SDK 加载成功', 'ok');
-
-    // Step 2: 初始化
-    diag('初始化环境: ' + envId);
-    const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-    if (!app) { diag('初始化返回 null', 'err'); throw new Error('初始化失败'); }
-    diag('环境实例创建成功', 'ok');
-
-    // Step 3: 自适应匿名登录
-    document.getElementById('loadingText').textContent = '正在登录...';
-    const loginPromise = adaptiveSignIn(app, CONNECT_TIMEOUT);
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('登录超时（8秒）')), CONNECT_TIMEOUT);
-    });
-    window.__cloudbaseTimeout = timeoutId;
-    await Promise.race([loginPromise, timeoutPromise]);
-    clearTimeout(timeoutId);
-
-    // Step 4: 获取数据库实例
-    diag('获取数据库实例...');
-    db = app.database();
-    if (!db) throw new Error('获取数据库实例失败');
-    diag('数据库实例就绪', 'ok');
-
-    // Step 5: 查询数据库
-    diag('查询云端数据...');
+    document.getElementById('loadingText').textContent = '正在连接云端 API...';
+    const data = await apiFetch('players');
+    state.players = data.map(doc => ({ ...doc, _id: doc._id }));
+    
     document.getElementById('loadingText').textContent = '正在同步数据...';
+    const [matches, pending] = await Promise.all([
+      apiFetch('matches'),
+      apiFetch('pending')
+    ]);
+    state.matches = matches.map(doc => ({ ...doc, _id: doc._id }));
+    state.pendingMatches = pending.map(doc => ({ ...doc, _id: doc._id }));
 
-    const cloudDataLoaded = await loadCloudData();
-    if (!cloudDataLoaded) {
-      diag('数据库查询被拒绝（权限/安全域名？）', 'err');
-      diagHint(
-        '🔧 <b>可能原因：</b><br>' +
-        '1️⃣ <a href="https://console.cloud.tencent.com/tcb/env/safety?envId=' + envId + '" target="_blank">安全域名</a>确认已添加 ymq.thexqn.net<br>' +
-        '2️⃣ 集合权限设为"所有用户可读"<br>' +
-        '3️⃣ 集合名确认: players / matches / pending_matches'
-      );
-      document.getElementById('loadingSpinner').style.display = 'none';
-      document.getElementById('loadingText').textContent = '⚠️ 数据库不可达，5秒后进入离线模式';
-      if (skipBtn) skipBtn.style.display = '';
-      setTimeout(() => fallbackToOffline(), 5000);
-      return;
-    }
-
-    // 全部成功 🎉
     clearTimeout(showSkipBtn);
     if (skipBtn) skipBtn.style.display = 'none';
-    diag('数据同步完成 (' + state.players.length + ' 人, ' + state.matches.length + ' 场)', 'ok');
-    cloudbaseReady = true;
+
+    apiOnline = true;
     isOfflineMode = false;
     document.getElementById('syncBadge').textContent = '☁️ 云端同步';
     document.getElementById('syncBadge').className = 'sync-badge online';
     document.getElementById('loadingOverlay').classList.add('hidden');
+
+    console.log('[API] 数据同步完成:', state.players.length, '球员,', state.matches.length, '比赛');
     init();
 
   } catch (err) {
-    clearTimeout(timeoutId);
     clearTimeout(showSkipBtn);
     if (skipBtn) skipBtn.style.display = 'none';
-    const errMsg = (err && (err.message || err.toString())) || '未知';
-    diag('最终错误: ' + errMsg, 'err');
-    console.error('CloudBase 连接失败:', err);
+    console.warn('[API] 连接失败，切换离线模式:', err.message);
 
-    if (errMsg.includes('超时') || errMsg.includes('timeout')) {
-      diagHint('🌐 网络超时，请检查网络后重试');
-    } else if (errMsg.includes('PERMISSION') || errMsg.includes('forbidden')) {
-      diagHint('🔐 权限被拒，请检查安全域名和数据库权限');
-    } else if (errMsg.includes('未找到可用的认证')) {
-      diagHint('📦 SDK 版本不兼容，需更换 CDN 版本');
-    } else {
-      diagHint('3 秒后自动切换离线模式');
-    }
-    document.getElementById('loadingText').textContent = '⚠️ ' + errMsg;
-    setTimeout(() => fallbackToOffline(), 3000);
+    document.getElementById('loadingText').textContent = '⚠️ ' + err.message;
+    setTimeout(() => fallbackToOffline(), 2000);
   }
 }
 
 function fallbackToOffline() {
-  clearTimeout(window.__cloudbaseTimeout);
-  window.__cloudbaseTimeout = null;
-  const skipBtn = document.getElementById('skipWaitBtn');
-  if (skipBtn) skipBtn.style.display = 'none';
   isOfflineMode = true;
-  cloudbaseReady = false;
-  db = null;
+  apiOnline = false;
+  loadLocalFallbackData();
   document.getElementById('syncBadge').textContent = '📴 离线模式';
   document.getElementById('syncBadge').className = 'sync-badge offline';
   document.getElementById('loadingOverlay').classList.add('hidden');
-  document.getElementById('setupOverlay').classList.remove('show');
-  loadLocalFallbackData();
   init();
 }
 
-// ==================== 配置界面 ====================
-function saveEnvId() {
-  const envId = document.getElementById('envIdInput').value.trim();
-  if (!envId) return showToast('请输入环境 ID');
-  localStorage.setItem('ymq_cloudbase_env_id', envId);
-  document.getElementById('setupOverlay').classList.remove('show');
-  document.getElementById('loadingOverlay').classList.remove('hidden');
-  // 刷新页面重新初始化
-  location.reload();
-}
-
-function useOfflineMode() {
-  localStorage.removeItem('ymq_cloudbase_env_id');
-  document.getElementById('setupOverlay').classList.remove('show');
-  fallbackToOffline();
-}
-
-// ==================== 数据层 - CloudBase 操作 ====================
-// 集合名
-const COL_PLAYERS = 'players';
-const COL_MATCHES = 'matches';
-const COL_PENDING = 'pending_matches';
-
-// 内存缓存（减少数据库请求）
+// ==================== 数据层 — fetch API 操作 ====================
 let state = { players: [], matches: [], pendingMatches: [] };
-
-async function loadCloudData() {
-  try {
-    // 并行加载三个集合
-    const [playersRes, matchesRes, pendingRes] = await Promise.all([
-      db.collection(COL_PLAYERS).limit(1000).get(),
-      db.collection(COL_MATCHES).orderBy('createdAt', 'desc').limit(1000).get(),
-      db.collection(COL_PENDING).orderBy('createdAt', 'desc').limit(1000).get()
-    ]);
-
-    state.players = (playersRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
-    state.matches = (matchesRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
-    state.pendingMatches = (pendingRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
-    return true;
-  } catch (err) {
-    const errDetail = (err && (err.message || err.code || err.toString())) || '未知错误';
-    console.warn('加载云端数据失败:', errDetail);
-    diag('数据库查询失败: ' + errDetail, 'err');
-    // 将完整错误存到 window 方便调试
-    window.__diagError = err;
-    return false;
-  }
-}
 
 // 球员 CRUD
 async function cloudAddPlayer(player) {
-  if (isOfflineMode || !db) {
+  if (isOfflineMode || !apiOnline) {
     state.players.push(player);
     saveLocalFallback();
     return player;
   }
   try {
-    const res = await db.collection(COL_PLAYERS).add(player);
-    player._id = res.id;
+    const result = await apiFetch('players', { method: 'POST', body: JSON.stringify(player) });
+    player._id = result._id;
     state.players.push(player);
     saveLocalFallback();
   } catch(e) {
     console.warn('cloudAddPlayer 云端失败:', e.message);
-    // 离线兜底
     state.players.push(player);
     saveLocalFallback();
   }
@@ -1154,79 +943,84 @@ async function cloudAddPlayer(player) {
 }
 
 async function cloudRemovePlayer(id) {
-  if (isOfflineMode || !db) {
+  if (isOfflineMode || !apiOnline) {
     state.players = state.players.filter(p => p._id !== id);
     saveLocalFallback();
     return;
   }
   try {
-    await db.collection(COL_PLAYERS).doc(id).remove();
-    state.players = state.players.filter(p => p._id !== id);
-    saveLocalFallback();
-  } catch(e) {
-    console.warn('cloudRemovePlayer 云端失败:', e.message);
-    state.players = state.players.filter(p => p._id !== id);
-    saveLocalFallback();
-  }
+    await apiFetch('players/' + id, { method: 'DELETE' });
+  } catch(e) { console.warn('cloudRemovePlayer 云端失败:', e.message); }
+  state.players = state.players.filter(p => p._id !== id);
+  saveLocalFallback();
 }
 
 // 比赛 CRUD
 async function cloudAddMatch(match) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !apiOnline) {
     state.matches.unshift(match);
     saveLocalFallback();
     return match;
   }
-  const res = await db.collection(COL_MATCHES).add(match);
-  match._id = res.id;
+  try {
+    const result = await apiFetch('matches', { method: 'POST', body: JSON.stringify(match) });
+    match._id = result._id;
+  } catch(e) { console.warn('cloudAddMatch 云端失败:', e.message); }
   state.matches.unshift(match);
+  saveLocalFallback();
   return match;
 }
 
 async function cloudUpdateMatch(match) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !apiOnline) {
     const idx = state.matches.findIndex(m => m._id === match._id);
     if (idx >= 0) state.matches[idx] = match;
     saveLocalFallback();
     return;
   }
-  const { _id, ...data } = match;
-  await db.collection(COL_MATCHES).doc(_id).update(data);
-  const idx = state.matches.findIndex(m => m._id === _id);
+  try {
+    const { _id, ...data } = match;
+    await apiFetch('matches/' + _id, { method: 'PUT', body: JSON.stringify(data) });
+  } catch(e) { console.warn('cloudUpdateMatch 云端失败:', e.message); }
+  const idx = state.matches.findIndex(m => m._id === match._id);
   if (idx >= 0) state.matches[idx] = match;
+  saveLocalFallback();
 }
 
 async function cloudDeleteMatch(id) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !apiOnline) {
     state.matches = state.matches.filter(m => m._id !== id);
     saveLocalFallback();
     return;
   }
-  await db.collection(COL_MATCHES).doc(id).remove();
+  try { await apiFetch('matches/' + id, { method: 'DELETE' }); } catch(e) {}
   state.matches = state.matches.filter(m => m._id !== id);
+  saveLocalFallback();
 }
 
 // 待审核 CRUD
 async function cloudAddPending(match) {
-  if (isOfflineMode) {
-    // 离线模式：管理员直接入库
+  if (isOfflineMode || !apiOnline) {
     state.matches.unshift(match);
     saveLocalFallback();
     return;
   }
-  const res = await db.collection(COL_PENDING).add(match);
-  match._id = res.id;
-  state.pendingMatches.push(match);
+  try {
+    const result = await apiFetch('pending', { method: 'POST', body: JSON.stringify(match) });
+    match._id = result._id;
+    state.pendingMatches.push(match);
+  } catch(e) { console.warn('cloudAddPending 云端失败:', e.message); }
 }
 
 async function cloudRemovePending(id) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !apiOnline) {
     state.pendingMatches = state.pendingMatches.filter(m => m._id !== id);
     saveLocalFallback();
     return;
   }
-  await db.collection(COL_PENDING).doc(id).remove();
+  try { await apiFetch('pending/' + id, { method: 'DELETE' }); } catch(e) {}
   state.pendingMatches = state.pendingMatches.filter(m => m._id !== id);
+  saveLocalFallback();
 }
 
 // ==================== 离线模式 - localStorage 回退 ====================
@@ -1525,7 +1319,7 @@ function addPlayer() {
     const player = { id: genId(), name, gender: genderSelect.value || '男', createdAt: Date.now() };
 
     // 离线模式：直接写入 state + localStorage
-    if (isOfflineMode || !cloudbaseReady) {
+    if (isOfflineMode || !apiOnline) {
       state.players.push(player);
       saveLocalFallback();
     } else {
@@ -2248,7 +2042,7 @@ function renderAll() {
 }
 
 // ==================== Start ====================
-initCloudbase();
+initApi();
 </script>
 </body>
 </html>

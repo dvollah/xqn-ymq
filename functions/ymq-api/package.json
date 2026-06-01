@@ -1,0 +1,9 @@
+{
+  "name": "ymq-api",
+  "version": "1.0.0",
+  "description": "羽毛球记录云函数 API",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.4.0"
+  }
+}
