@@ -931,7 +931,17 @@ async function initCloudbase() {
     document.getElementById('syncBadge').className = 'sync-badge online';
     document.getElementById('loadingOverlay').classList.add('hidden');
 
-    await loadCloudData();
+    const cloudDataLoaded = await loadCloudData();
+    if (!cloudDataLoaded) {
+      // 云端数据库不可用（如安全规则限制），自动降级为离线模式
+      console.warn('CloudBase 数据库权限受限，切换离线模式');
+      isOfflineMode = true;
+      cloudbaseReady = false;
+      db = null;
+      loadLocalFallbackData();
+      document.getElementById('syncBadge').textContent = '📴 离线模式';
+      document.getElementById('syncBadge').className = 'sync-badge offline';
+    }
     init();
   } catch (err) {
     clearTimeout(timeoutId);
@@ -1000,9 +1010,10 @@ async function loadCloudData() {
     state.players = (playersRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
     state.matches = (matchesRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
     state.pendingMatches = (pendingRes.data || []).map(doc => ({ ...doc, _id: doc._id }));
+    return true;
   } catch (err) {
-    console.error('加载云端数据失败:', err);
-    showToast('⚠️ 加载数据失败，请检查网络');
+    console.warn('加载云端数据失败，切换本地模式:', (err && err.message) || err);
+    return false;
   }
 }
 
