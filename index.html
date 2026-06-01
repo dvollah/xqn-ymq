@@ -580,6 +580,10 @@ select.form-input {
 <div class="loading-overlay" id="loadingOverlay">
   <div class="loading-spinner"></div>
   <div class="loading-text" id="loadingText">正在连接云端...</div>
+  <button class="btn btn-outline" id="skipWaitBtn" style="margin-top:20px;display:none;"
+    onclick="clearTimeout(window.__cloudbaseTimeout); fallbackToOffline();">
+    ⚡ 跳过等待，进入离线模式
+  </button>
 </div>
 
 <!-- 配置引导（首次使用） -->
@@ -877,18 +881,21 @@ let isOfflineMode = false;
 async function initCloudbase() {
   const envId = CLOUDBASE_ENV_ID;
   if (!envId) {
-    // 没有配置环境 ID，显示配置界面
     document.getElementById('loadingOverlay').classList.add('hidden');
     document.getElementById('setupOverlay').classList.add('show');
     return;
   }
 
-  // 加一个 8 秒硬超时，防止永远转圈
   const CONNECT_TIMEOUT = 8000;
   let timeoutId;
 
+  // 3 秒后显示「跳过等待」按钮
+  const skipBtn = document.getElementById('skipWaitBtn');
+  const showSkipBtn = setTimeout(() => {
+    if (skipBtn) skipBtn.style.display = '';
+  }, 3000);
+
   try {
-    // 先检查 cloudbase 全局变量是否可用
     if (typeof cloudbase === 'undefined' || typeof cloudbase.init !== 'function') {
       throw new Error('SDK 未加载，cloudbase 全局变量不可用');
     }
@@ -904,15 +911,17 @@ async function initCloudbase() {
       throw new Error('CloudBase 初始化返回异常');
     }
 
-    // 匿名登录（带超时）
     document.getElementById('loadingText').textContent = '正在登录...';
     const loginPromise = app.auth({ persistence: 'local' }).signInAnonymously();
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error('连接超时（8秒）')), CONNECT_TIMEOUT);
     });
+    window.__cloudbaseTimeout = timeoutId;
 
     await Promise.race([loginPromise, timeoutPromise]);
     clearTimeout(timeoutId);
+    clearTimeout(showSkipBtn);
+    if (skipBtn) skipBtn.style.display = 'none';
 
     db = app.database();
     cloudbaseReady = true;
@@ -922,11 +931,12 @@ async function initCloudbase() {
     document.getElementById('syncBadge').className = 'sync-badge online';
     document.getElementById('loadingOverlay').classList.add('hidden');
 
-    // 初始化完成，加载数据
     await loadCloudData();
     init();
   } catch (err) {
     clearTimeout(timeoutId);
+    clearTimeout(showSkipBtn);
+    if (skipBtn) skipBtn.style.display = 'none';
     console.error('CloudBase 连接失败:', err);
     const errMsg = (err && (err.message || err.toString())) || '未知错误';
     document.getElementById('loadingText').innerHTML = '⚠️ ' + errMsg + '<br><small style="font-size:12px;opacity:0.7">3秒后自动切换离线模式</small>';
@@ -937,6 +947,10 @@ async function initCloudbase() {
 }
 
 function fallbackToOffline() {
+  clearTimeout(window.__cloudbaseTimeout);
+  window.__cloudbaseTimeout = null;
+  const skipBtn = document.getElementById('skipWaitBtn');
+  if (skipBtn) skipBtn.style.display = 'none';
   isOfflineMode = true;
   cloudbaseReady = false;
   db = null;
@@ -994,25 +1008,40 @@ async function loadCloudData() {
 
 // 球员 CRUD
 async function cloudAddPlayer(player) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !db) {
     state.players.push(player);
     saveLocalFallback();
     return player;
   }
-  const res = await db.collection(COL_PLAYERS).add(player);
-  player._id = res.id;
-  state.players.push(player);
+  try {
+    const res = await db.collection(COL_PLAYERS).add(player);
+    player._id = res.id;
+    state.players.push(player);
+    saveLocalFallback();
+  } catch(e) {
+    console.warn('cloudAddPlayer 云端失败:', e.message);
+    // 离线兜底
+    state.players.push(player);
+    saveLocalFallback();
+  }
   return player;
 }
 
 async function cloudRemovePlayer(id) {
-  if (isOfflineMode) {
+  if (isOfflineMode || !db) {
     state.players = state.players.filter(p => p._id !== id);
     saveLocalFallback();
     return;
   }
-  await db.collection(COL_PLAYERS).doc(id).remove();
-  state.players = state.players.filter(p => p._id !== id);
+  try {
+    await db.collection(COL_PLAYERS).doc(id).remove();
+    state.players = state.players.filter(p => p._id !== id);
+    saveLocalFallback();
+  } catch(e) {
+    console.warn('cloudRemovePlayer 云端失败:', e.message);
+    state.players = state.players.filter(p => p._id !== id);
+    saveLocalFallback();
+  }
 }
 
 // 比赛 CRUD
@@ -1353,18 +1382,41 @@ function getActiveFilter(groupId) {
 }
 
 // ==================== Player Management ====================
-async function addPlayer() {
-  if (!isAdmin) return showToast('🔒 需要管理员权限才能添加球员');
-  const nameInput = document.getElementById('newPlayerName');
-  const genderSelect = document.getElementById('newPlayerGender');
-  const name = nameInput.value.trim();
-  if (!name) return showToast('请输入昵称');
-  if (state.players.some(p => p.name === name)) return showToast('该昵称已存在');
-  const player = { id: genId(), name, gender: genderSelect.value, createdAt: Date.now() };
-  await cloudAddPlayer(player);
-  nameInput.value = '';
-  renderPlayers();
-  showToast('✅ 已添加 ' + name);
+function addPlayer() {
+  try {
+    if (!isAdmin) { showToast('🔒 需要管理员权限才能添加球员'); return; }
+    if (!state || !Array.isArray(state.players)) { showToast('⚠️ 数据未初始化，请刷新页面'); return; }
+
+    const nameInput = document.getElementById('newPlayerName');
+    const genderSelect = document.getElementById('newPlayerGender');
+    if (!nameInput || !genderSelect) { showToast('⚠️ 页面元素丢失，请刷新'); return; }
+
+    const name = (nameInput.value || '').trim();
+    if (!name) { showToast('请输入昵称'); return; }
+    if (name.length > 10) { showToast('昵称最多10个字符'); return; }
+    if (state.players.some(p => p.name === name)) { showToast('该昵称已存在'); return; }
+
+    const player = { id: genId(), name, gender: genderSelect.value || '男', createdAt: Date.now() };
+
+    // 离线模式：直接写入 state + localStorage
+    if (isOfflineMode || !cloudbaseReady) {
+      state.players.push(player);
+      saveLocalFallback();
+    } else {
+      // 云端模式：异步写入（忽略 async，fire-and-forget 也可；这里用同步离线兜底）
+      state.players.push(player);
+      saveLocalFallback();
+      // 尝试云端同步（不阻塞 UI）
+      cloudAddPlayer(player).catch(e => console.warn('云端同步失败，已保存本地:', e.message));
+    }
+
+    nameInput.value = '';
+    renderPlayers();
+    showToast('✅ 已添加 ' + name);
+  } catch (err) {
+    console.error('addPlayer error:', err);
+    showToast('❌ 添加失败: ' + (err.message || '未知错误'));
+  }
 }
 
 async function removePlayer(id) {
