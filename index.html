@@ -1807,9 +1807,13 @@ async function promptEditGameScore(matchId, gameIdx) {
 
 async function deleteMatch(id) {
   if (!isAdmin) return showToast('🔒 需要管理员权限');
+  // 确认弹窗
+  const yn = confirm('⚠️ 确定要删除这条比赛记录吗？\n\n此操作不可撤销，数据将永久丢失！');
+  if (!yn) return;
   await cloudDeleteMatch(id);
   renderHistory();
   renderStats();
+  renderPlayers();
   showToast('已删除');
 }
 
