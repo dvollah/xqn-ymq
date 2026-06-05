@@ -568,6 +568,36 @@ select.form-input {
 .setup-card .desc { font-size: 13px; color: var(--text2); margin-bottom: 16px; line-height: 1.6; }
 .setup-card .steps { font-size: 12px; color: var(--text2); margin-top: 12px; line-height: 1.8; }
 
+/* 球员战绩详情弹窗 */
+.player-detail-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; visibility: hidden; opacity: 0; transition: all 0.2s;
+}
+.player-detail-overlay.show { visibility: visible; opacity: 1; }
+.player-detail-modal {
+  background: var(--card); border-radius: var(--radius); padding: 20px;
+  width: 92%; max-width: 420px; max-height: 80vh; overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+.player-detail-modal h3 { font-size: 18px; margin-bottom: 4px; }
+.player-detail-modal .p-sub { font-size: 12px; color: var(--text2); margin-bottom: 16px; }
+.player-detail-modal .stat-row-detail {
+  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.player-detail-modal .stat-row-detail:last-child { border-bottom: none; }
+.player-detail-modal .stat-type { font-size: 13px; font-weight: 600; min-width: 48px; }
+.player-detail-modal .stat-bar-wrap { flex: 1; height: 20px; background: var(--bg); border-radius: 10px; overflow: hidden; }
+.player-detail-modal .stat-bar-fill { height: 100%; border-radius: 10px; transition: width 0.4s; }
+.player-detail-modal .stat-num { font-size: 12px; color: var(--text2); min-width: 80px; text-align: right; }
+.player-detail-modal .close-btn {
+  position: absolute; top: 12px; right: 16px; background: none; border: none;
+  font-size: 20px; cursor: pointer; color: var(--text2); line-height: 1;
+}
+.player-detail-modal .p-header { position: relative; margin-bottom: 12px; }
+.p-nodata { text-align: center; color: var(--text3); padding: 20px 0; font-size: 13px; }
+
 @media (min-width: 600px) {
   body { max-width: 480px; margin: 0 auto; }
 }
@@ -842,6 +872,11 @@ select.form-input {
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- 球员战绩详情弹窗 -->
+<div class="player-detail-overlay" id="playerDetailOverlay" onclick="if(event.target===this)closePlayerDetail()">
+  <div class="player-detail-modal" id="playerDetailModal"></div>
+</div>
 
 <script>
 // ==================== API 配置 ====================
@@ -1362,15 +1397,18 @@ function renderPlayers() {
   }
   container.innerHTML = state.players.map(p => {
     const genderIcon = p.gender === '男' ? '♂️' : '♀️';
-    const matches = state.matches.filter(m => m.teamA.includes(p.id) || m.teamB.includes(p.id)).length;
+    const matches = state.matches.filter(m =>
+      m.teamA.includes(p._id) || m.teamB.includes(p._id) ||
+      m.teamA.includes(p.id) || m.teamB.includes(p.id)
+    ).length;
     return `
-      <div class="card" style="display:flex;align-items:center;gap:10px;">
+      <div class="card" style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="openPlayerDetail('${p._id || p.id}')">
         <div style="font-size:24px;">${genderIcon}</div>
         <div style="flex:1;">
           <div style="font-size:15px;font-weight:600;">${esc(p.name)}</div>
-          <div style="font-size:12px;color:var(--text3);">参赛 ${matches} 场</div>
+          <div style="font-size:12px;color:var(--text3);">参赛 ${matches} 场 · 点击查看战绩</div>
         </div>
-        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="removePlayer('${p._id}')">删除</button>` : ''}
+        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removePlayer('${p._id}')">删除</button>` : ''}
       </div>`;
   }).join('');
 }
@@ -2121,6 +2159,79 @@ function showToast(msg) {
 
 function renderAll() {
   updateTeamDisplay();
+}
+
+// ==================== 球员战绩详情弹窗 ====================
+const DETAIL_CATEGORIES = ['男双','女双','混双','男单','女单','团体赛','无羽伦比'];
+
+function openPlayerDetail(playerId) {
+  const player = state.players.find(p => p._id === playerId || p.id === playerId);
+  if (!player) return;
+
+  const idMap = {};
+  state.players.forEach(p => {
+    if (p._id) idMap[p._id] = p.id;
+    if (p.id) idMap[p.id] = p.id;
+  });
+
+  // 筛选涉及该球员的所有比赛（同时兼容 _id 和 id）
+  const myMatches = state.matches.filter(m => {
+    const inTeamA = m.teamA.some(id => id && (id === player._id || id === player.id));
+    const inTeamB = m.teamB.some(id => id && (id === player._id || id === player.id));
+    if (!inTeamA && !inTeamB) return false;
+    // 只保留该球员所在方的数据
+    m._mySide = inTeamA ? 'A' : 'B';
+    return true;
+  });
+
+  let totalWins = 0, totalLosses = 0;
+  let html = '<div class="p-header"><h3>' + esc(player.name) + '</h3>';
+  html += '<div class="p-sub">共参与 ' + myMatches.length + ' 场比赛</div>';
+  html += '<button class="close-btn" onclick="closePlayerDetail()">✕</button></div>';
+
+  let hasData = false;
+  DETAIL_CATEGORIES.forEach(cat => {
+    const catMatches = myMatches.filter(m => {
+      const side = m._mySide;
+      const subType = side === 'A' ? m.teamASubType : m.teamBSubType;
+      return subType === cat || (cat === '团体赛' && m.type === '团体赛') || (cat === '无羽伦比' && m.type === '无羽伦比');
+    });
+    if (catMatches.length === 0) return;
+    hasData = true;
+
+    let wins = 0, losses = 0;
+    catMatches.forEach(m => {
+      if (m.winner === m._mySide) wins++; else losses++;
+    });
+    const total = wins + losses;
+    const rate = total > 0 ? Math.round(wins / total * 100) : 0;
+    const barColor = rate >= 50 ? 'var(--primary)' : 'var(--info)';
+    totalWins += wins; totalLosses += losses;
+
+    html += '<div class="stat-row-detail">';
+    html += '<div class="stat-type">' + cat + '</div>';
+    html += '<div class="stat-bar-wrap"><div class="stat-bar-fill" style="width:' + rate + '%;background:' + barColor + ';"></div></div>';
+    html += '<div class="stat-num">' + wins + '胜' + losses + '负 · ' + rate + '%</div>';
+    html += '</div>';
+  });
+
+  if (!hasData) {
+    html += '<div class="p-nodata">暂无比赛数据</div>';
+  } else {
+    const totalRate = totalWins + totalLosses > 0 ? Math.round(totalWins / (totalWins + totalLosses) * 100) : 0;
+    html += '<div class="stat-row-detail" style="border-top:2px solid var(--border);margin-top:8px;padding-top:12px;">';
+    html += '<div class="stat-type" style="color:var(--primary);">总计</div>';
+    html += '<div class="stat-bar-wrap"><div class="stat-bar-fill" style="width:' + totalRate + '%;background:var(--primary);"></div></div>';
+    html += '<div class="stat-num" style="font-weight:700;">' + totalWins + '胜' + totalLosses + '负 · ' + totalRate + '%</div>';
+    html += '</div>';
+  }
+
+  document.getElementById('playerDetailModal').innerHTML = html;
+  document.getElementById('playerDetailOverlay').classList.add('show');
+}
+
+function closePlayerDetail() {
+  document.getElementById('playerDetailOverlay').classList.remove('show');
 }
 
 // ==================== Start ====================
