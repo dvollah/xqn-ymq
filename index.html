@@ -1062,14 +1062,14 @@ function saveData() {
 // ==================== 公共辅助函数 ====================
 function getRefereeName(referee) {
   if (!referee) return '';
-  const player = state.players.find(p => p.id === referee);
+  const player = state.players.find(p => p._id === referee || p.id === referee);
   if (player) return player.name;
   return referee;
 }
 
 function getPlayerName(id) {
   if (!id) return '';
-  const player = state.players.find(p => p.id === id);
+  const player = state.players.find(p => p._id === id || p.id === id);
   return player ? player.name : id;
 }
 
@@ -1246,7 +1246,7 @@ function updateTeamLabels() {
 }
 
 function detectSideSubType(playerIds) {
-  const players = playerIds.map(id => state.players.find(p => p.id === id)).filter(Boolean);
+  const players = playerIds.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean);
   if (players.length === 0) return '';
   const hasMale = players.some(p => p.gender === '男');
   const hasFemale = players.some(p => p.gender === '女');
@@ -1699,8 +1699,8 @@ function renderHistory() {
 }
 
 function renderMatchItem(m, showDelete) {
-  const pA = m.teamA.map(id => state.players.find(p => p.id === id)).filter(Boolean).map(p => p.name);
-  const pB = m.teamB.map(id => state.players.find(p => p.id === id)).filter(Boolean).map(p => p.name);
+  const pA = m.teamA.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
+  const pB = m.teamB.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
   const meta = TYPE_META[m.type] || {};
   const typeClass = meta.cls || '';
   const time = m.matchTime ? formatDate(m.matchTime) : formatDate(m.createdAt);
@@ -1786,8 +1786,8 @@ function renderReview() {
   }
 
   list.innerHTML = pending.map((m, idx) => {
-    const pA = m.teamA.map(id => state.players.find(p => p.id === id)).filter(Boolean).map(p => p.name);
-    const pB = m.teamB.map(id => state.players.find(p => p.id === id)).filter(Boolean).map(p => p.name);
+    const pA = m.teamA.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
+    const pB = m.teamB.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
     const meta = TYPE_META[m.type] || {};
     const time = m.matchTime ? formatDate(m.matchTime) : formatDate(m.createdAt);
     const subA = m.teamASubType ? '（' + m.teamASubType + '）' : '';
@@ -1903,7 +1903,11 @@ function renderTotalWinRank() {
 
 function calcPlayerStats(matches) {
   const stats = {};
+  // 同时兼容 _id 和 id 两种格式，构建双向映射
+  const idMap = {};
   state.players.forEach(p => {
+    if (p._id) idMap[p._id] = p.id;
+    if (p.id) idMap[p.id] = p.id;
     stats[p.id] = { name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   matches.forEach(m => {
@@ -1911,11 +1915,12 @@ function calcPlayerStats(matches) {
       { players: m.teamA, isWin: m.winner === 'A' },
       { players: m.teamB, isWin: m.winner === 'B' }
     ].forEach(side => {
-      side.players.forEach(id => {
+      side.players.forEach(rawId => {
+        const id = idMap[rawId] || rawId;
         if (!stats[id]) return;
         if (side.isWin) stats[id].wins++; else stats[id].losses++;
         m.games.forEach(g => {
-          const isA = m.teamA.includes(id);
+          const isA = (m.teamA.includes(rawId));
           stats[id].pointsWon += isA ? g.a : g.b;
           stats[id].pointsLost += isA ? g.b : g.a;
         });
@@ -1935,7 +1940,10 @@ function calcPlayerStats(matches) {
 // 按子类型（男双/女双/混双/男单/女单）分别统计：仅计入该方匹配子类型的球员
 function calcPlayerStatsBySubType(subType) {
   const stats = {};
+  const idMap = {};
   state.players.forEach(p => {
+    if (p._id) idMap[p._id] = p.id;
+    if (p.id) idMap[p.id] = p.id;
     stats[p.id] = { name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   state.matches.forEach(m => {
@@ -1943,7 +1951,8 @@ function calcPlayerStatsBySubType(subType) {
     const bOk = m.teamBSubType === subType;
     if (!aOk && !bOk) return;
     if (aOk) {
-      m.teamA.forEach(id => {
+      m.teamA.forEach(rawId => {
+        const id = idMap[rawId] || rawId;
         if (!stats[id]) return;
         if (m.winner === 'A') stats[id].wins++; else stats[id].losses++;
         m.games.forEach(g => { stats[id].pointsWon += g.a; stats[id].pointsLost += g.b; });
@@ -1951,7 +1960,8 @@ function calcPlayerStatsBySubType(subType) {
       });
     }
     if (bOk) {
-      m.teamB.forEach(id => {
+      m.teamB.forEach(rawId => {
+        const id = idMap[rawId] || rawId;
         if (!stats[id]) return;
         if (m.winner === 'B') stats[id].wins++; else stats[id].losses++;
         m.games.forEach(g => { stats[id].pointsWon += g.b; stats[id].pointsLost += g.a; });
@@ -2064,7 +2074,7 @@ function calcPartnerStatsBySubType(subType) {
 
 function renderPartnerRows(ranked) {
   return ranked.slice(0, 12).map((pair, i) => {
-    const names = pair.players.map(id => state.players.find(p => p.id === id)).filter(Boolean).map(p => p.name);
+    const names = pair.players.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
     const total = pair.wins + pair.losses;
     const rate = total > 0 ? Math.round(pair.wins / total * 100) : 0;
     const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-n';
