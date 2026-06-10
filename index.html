@@ -1943,6 +1943,27 @@ function renderTotalWinRank() {
   list.innerHTML = renderRankRows(ranked);
 }
 
+// 统计门槛：总场次 >= MIN_MATCHES 或该单项场次 >= MIN_MATCHES 才进入排行榜
+const MIN_MATCHES = 10;
+
+// 计算每位球员的总参赛场次（跨所有比赛，用于门槛过滤）
+function calcPlayerTotalMatches() {
+  const idMap = {};
+  const totals = {};
+  state.players.forEach(p => {
+    if (p._id) idMap[p._id] = p.id;
+    if (p.id) idMap[p.id] = p.id;
+    totals[p.id] = 0;
+  });
+  state.matches.forEach(m => {
+    [...m.teamA, ...m.teamB].forEach(rawId => {
+      const id = idMap[rawId] || rawId;
+      if (totals[id] !== undefined) totals[id]++;
+    });
+  });
+  return totals;
+}
+
 function calcPlayerStats(matches) {
   const stats = {};
   // 同时兼容 _id 和 id 两种格式，构建双向映射
@@ -1950,7 +1971,7 @@ function calcPlayerStats(matches) {
   state.players.forEach(p => {
     if (p._id) idMap[p._id] = p.id;
     if (p.id) idMap[p.id] = p.id;
-    stats[p.id] = { name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
+    stats[p.id] = { pid: p.id, name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   matches.forEach(m => {
     [
@@ -1970,8 +1991,14 @@ function calcPlayerStats(matches) {
       });
     });
   });
+  const totalMatchMap = calcPlayerTotalMatches();
   return Object.values(stats)
-    .filter(s => s.wins + s.losses > 0)
+    .filter(s => {
+      const itemTotal = s.wins + s.losses;
+      if (itemTotal === 0) return false;
+      if (itemTotal >= MIN_MATCHES) return true;
+      return (totalMatchMap[s.pid] || 0) >= MIN_MATCHES;
+    })
     .sort((a, b) => {
       const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
       if (rB !== rA) return rB - rA;
@@ -1986,7 +2013,7 @@ function calcPlayerStatsBySubType(subType) {
   state.players.forEach(p => {
     if (p._id) idMap[p._id] = p.id;
     if (p.id) idMap[p.id] = p.id;
-    stats[p.id] = { name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
+    stats[p.id] = { pid: p.id, name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   state.matches.forEach(m => {
     const aOk = m.teamASubType === subType;
@@ -2011,8 +2038,15 @@ function calcPlayerStatsBySubType(subType) {
       });
     }
   });
+  const totalMatchMap = calcPlayerTotalMatches();
   return Object.values(stats)
-    .filter(s => s.wins + s.losses > 0)
+    .filter(s => {
+      const itemTotal = s.wins + s.losses;
+      if (itemTotal === 0) return false;
+      // 单项 >= 门槛 或 总场次 >= 门槛
+      if (itemTotal >= MIN_MATCHES) return true;
+      return (totalMatchMap[s.pid] || 0) >= MIN_MATCHES;
+    })
     .sort((a, b) => {
       const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
       if (rB !== rA) return rB - rA;
@@ -2077,11 +2111,12 @@ function calcPartnerStats(matches) {
   matches.forEach(m => {
     const processTeam = (team, isWin) => {
       const key = [...team].sort().join('+');
-      if (!pairs[key]) pairs[key] = { players: [...team], wins: 0, losses: 0 };
+      if (!pairs[key]) pairs[key] = { players: [...team], wins: 0, losses: 0, matchList: [] };
       if (isWin) pairs[key].wins++; else pairs[key].losses++;
+      pairs[key].matchList.push(m);
     };
-    processTeam(m.teamA, m.winner === 'A');
-    processTeam(m.teamB, m.winner === 'B');
+    if (m.teamA.length >= 2) processTeam(m.teamA, m.winner === 'A');
+    if (m.teamB.length >= 2) processTeam(m.teamB, m.winner === 'B');
   });
   return Object.values(pairs).sort((a, b) => {
     const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
@@ -2098,13 +2133,15 @@ function calcPartnerStatsBySubType(subType) {
     const bOk = m.teamBSubType === subType && m.teamB.length >= 2;
     if (aOk) {
       const key = [...m.teamA].sort().join('+');
-      if (!pairs[key]) pairs[key] = { players: [...m.teamA], wins: 0, losses: 0 };
+      if (!pairs[key]) pairs[key] = { players: [...m.teamA], wins: 0, losses: 0, matchList: [] };
       if (m.winner === 'A') pairs[key].wins++; else pairs[key].losses++;
+      pairs[key].matchList.push(m);
     }
     if (bOk) {
       const key = [...m.teamB].sort().join('+');
-      if (!pairs[key]) pairs[key] = { players: [...m.teamB], wins: 0, losses: 0 };
+      if (!pairs[key]) pairs[key] = { players: [...m.teamB], wins: 0, losses: 0, matchList: [] };
       if (m.winner === 'B') pairs[key].wins++; else pairs[key].losses++;
+      pairs[key].matchList.push(m);
     }
   });
   return Object.values(pairs).sort((a, b) => {
@@ -2114,18 +2151,26 @@ function calcPartnerStatsBySubType(subType) {
   });
 }
 
+// 全局缓存搭档详情，供弹窗使用
+let _partnerDetailCache = {};
+
 function renderPartnerRows(ranked) {
+  // 重置缓存
+  _partnerDetailCache = {};
   return ranked.slice(0, 12).map((pair, i) => {
     const names = pair.players.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
     const total = pair.wins + pair.losses;
     const rate = total > 0 ? Math.round(pair.wins / total * 100) : 0;
     const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-n';
+    // 存入缓存，key 用排名索引
+    const cacheKey = 'pair_' + i;
+    _partnerDetailCache[cacheKey] = pair;
     return `
-      <div class="stat-row">
+      <div class="stat-row" style="cursor:pointer;" onclick="openPartnerDetail('${cacheKey}')">
         <div class="stat-rank ${rankClass}">${i + 1}</div>
         <div class="stat-info">
           <div class="stat-name">${names.join(' & ')}</div>
-          <div class="stat-detail">${pair.wins}胜 ${pair.losses}负 · 共${total}场</div>
+          <div class="stat-detail">${pair.wins}胜 ${pair.losses}负 · 共${total}场 · 点击查看详情</div>
         </div>
         <div class="stat-value" style="color:var(--primary);">${rate}%</div>
       </div>`;
@@ -2235,6 +2280,75 @@ function openPlayerDetail(playerId) {
 }
 
 function closePlayerDetail() {
+  document.getElementById('playerDetailOverlay').classList.remove('show');
+}
+
+// ==================== 搭档详情弹窗 ====================
+function openPartnerDetail(cacheKey) {
+  const pair = _partnerDetailCache[cacheKey];
+  if (!pair) return;
+
+  const names = pair.players.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
+  const total = pair.wins + pair.losses;
+  const rate = total > 0 ? Math.round(pair.wins / total * 100) : 0;
+
+  let html = '<div class="p-header">';
+  html += '<h3>' + names.join(' & ') + '</h3>';
+  html += '<div class="p-sub">' + pair.wins + '胜 ' + pair.losses + '负 · 共' + total + '场 · 胜率' + rate + '%</div>';
+  html += '<button class="close-btn" onclick="closePartnerDetail()">✕</button>';
+  html += '</div>';
+
+  // 按时间倒序排列比赛记录
+  const sortedMatches = [...(pair.matchList || [])].sort((a, b) => {
+    const ta = a.matchTime || a.createdAt || 0;
+    const tb = b.matchTime || b.createdAt || 0;
+    return tb - ta;
+  });
+
+  if (sortedMatches.length === 0) {
+    html += '<div class="p-nodata">暂无比赛记录</div>';
+  } else {
+    html += '<div style="margin-top:4px;">';
+    sortedMatches.forEach(m => {
+      const pairKey = [...pair.players].sort().join('+');
+      const myTeamIsA = [...m.teamA].sort().join('+') === pairKey;
+      const myTeam = myTeamIsA ? m.teamA : m.teamB;
+      const oppTeam = myTeamIsA ? m.teamB : m.teamA;
+      const isWin = m.winner === (myTeamIsA ? 'A' : 'B');
+
+      const oppNames = oppTeam.map(id => {
+        const p = state.players.find(p => p._id === id || p.id === id);
+        return p ? p.name : id;
+      }).join(' & ');
+
+      const score = (m.games || []).map(g => {
+        const myScore = myTeamIsA ? g.a : g.b;
+        const oppScore = myTeamIsA ? g.b : g.a;
+        return myScore + ':' + oppScore;
+      }).join('  ');
+
+      const time = m.matchTime ? formatDate(m.matchTime) : (m.createdAt ? formatDate(m.createdAt) : '');
+      const subType = myTeamIsA ? (m.teamASubType || '') : (m.teamBSubType || '');
+      const winColor = isWin ? 'var(--primary)' : 'var(--danger, #e53935)';
+      const winLabel = isWin ? '胜' : '负';
+
+      html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">';
+      html += '<div style="font-size:12px;color:var(--text2);">' + time + (subType ? '  · ' + subType : '') + '</div>';
+      html += '<div style="font-size:13px;font-weight:700;color:' + winColor + ';">' + winLabel + '</div>';
+      html += '</div>';
+      html += '<div style="font-size:13px;color:var(--text1);">vs ' + esc(oppNames) + '</div>';
+      html += '<div style="font-size:12px;color:var(--text2);margin-top:2px;">' + (score || '无比分') + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('playerDetailModal').innerHTML = html;
+  document.getElementById('playerDetailOverlay').classList.add('show');
+}
+
+function closePartnerDetail() {
   document.getElementById('playerDetailOverlay').classList.remove('show');
 }
 
