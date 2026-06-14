@@ -2285,8 +2285,10 @@ function openPlayerDetail(playerId) {
       if (typeof item === 'object') return item._id || item.id || null;
       return null;
     }
-    const inTeamA = (m.teamA || []).some(toId).includes(player._id) || (m.teamA || []).some(toId).includes(player.id);
-    const inTeamB = (m.teamB || []).some(toId).includes(player._id) || (m.teamB || []).some(toId).includes(player.id);
+    const teamAIds = (m.teamA || []).map(toId).filter(Boolean);
+    const teamBIds = (m.teamB || []).map(toId).filter(Boolean);
+    const inTeamA = teamAIds.includes(player._id) || teamAIds.includes(player.id);
+    const inTeamB = teamBIds.includes(player._id) || teamBIds.includes(player.id);
     if (!inTeamA && !inTeamB) return false;
     m._mySide = inTeamA ? 'A' : 'B';
     return true;
