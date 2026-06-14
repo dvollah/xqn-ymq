@@ -1303,7 +1303,13 @@ function updateTeamLabels() {
 }
 
 function detectSideSubType(playerIds) {
-  const players = playerIds.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean);
+  function toId(item) {
+    if (!item) return null;
+    if (typeof item === 'string') return item;
+    if (typeof item === 'object') return item._id || item.id || null;
+    return null;
+  }
+  const players = playerIds.map(toId).filter(Boolean).map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean);
   if (players.length === 0) return '';
   const hasMale = players.some(p => p.gender === '男');
   const hasFemale = players.some(p => p.gender === '女');
@@ -2271,10 +2277,16 @@ function openPlayerDetail(playerId) {
   _playerDetailCurrent = player;
   if (!player) return;
 
-  // 筛选涉及该球员的所有比赛（同时兼容 _id 和 id）
+  // 筛选涉及该球员的所有比赛（同时兼容 _id 和 id，以及对象/字符串格式）
   const myMatches = state.matches.filter(m => {
-    const inTeamA = m.teamA.some(id => id && (id === player._id || id === player.id));
-    const inTeamB = m.teamB.some(id => id && (id === player._id || id === player.id));
+    function toId(item) {
+      if (!item) return null;
+      if (typeof item === 'string') return item;
+      if (typeof item === 'object') return item._id || item.id || null;
+      return null;
+    }
+    const inTeamA = (m.teamA || []).some(toId).includes(player._id) || (m.teamA || []).some(toId).includes(player.id);
+    const inTeamB = (m.teamB || []).some(toId).includes(player._id) || (m.teamB || []).some(toId).includes(player.id);
     if (!inTeamA && !inTeamB) return false;
     m._mySide = inTeamA ? 'A' : 'B';
     return true;
@@ -2361,16 +2373,25 @@ function togglePlayerCat(safecat) {
     games.forEach(m => {
       const side = m._mySide;
       const isWin = m.winner === side;
-      const myTeam = side === 'A' ? m.teamA : m.teamB;
-      const oppTeam = side === 'A' ? m.teamB : m.teamA;
+      const myTeamRaw = side === 'A' ? m.teamA : m.teamB;
+      const oppTeamRaw = side === 'A' ? m.teamB : m.teamA;
       const player = _playerDetailCurrent;
       const myIds = [player._id, player.id].filter(Boolean);
 
+      // 统一提取 ID 和名字（兼容字符串 ID 和对象格式）
+      function extractInfo(item) {
+        if (!item) return { id: null, name: '' };
+        if (typeof item === 'string') return { id: item, name: getPlayerName(item) };
+        if (typeof item === 'object') return { id: item._id || item.id || null, name: item.name || getPlayerName(item._id || item.id) || '' };
+        return { id: null, name: String(item) };
+      }
+
       // 队友（除自己外）
-      const teammates = myTeam.filter(id => !myIds.includes(id))
-        .map(id => getPlayerName(state.players, id)).filter(Boolean);
+      const teammates = myTeamRaw
+        .map(extractInfo).filter(x => x.id && !myIds.includes(x.id))
+        .map(x => x.name).filter(Boolean);
       // 对手
-      const opps = oppTeam.map(id => getPlayerName(state.players, id)).filter(Boolean);
+      const opps = oppTeamRaw.map(extractInfo).map(x => x.name).filter(Boolean);
 
       const score = (m.games || []).map(g => {
         const myS = side === 'A' ? g.a : g.b;
