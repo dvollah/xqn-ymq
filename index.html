@@ -2141,8 +2141,9 @@ function renderTotalWinRank() {
 // 统计门槛：总场次 >= MIN_MATCHES 或该单项场次 >= MIN_MATCHES 才进入排行榜
 const MIN_MATCHES = 10;
 
-// 计算每位球员的总参赛场次（跨所有比赛，用于门槛过滤）
-function calcPlayerTotalMatches() {
+// 计算每位球员的总参赛场次（可选传入 matchesOverride 用于场地筛选场景）
+function calcPlayerTotalMatches(matchesOverride) {
+  const matches = matchesOverride || state.matches;
   const idMap = {};
   const totals = {};
   state.players.forEach(p => {
@@ -2150,7 +2151,7 @@ function calcPlayerTotalMatches() {
     if (p.id) idMap[p.id] = p.id;
     totals[p.id] = 0;
   });
-  state.matches.forEach(m => {
+  matches.forEach(m => {
     [...m.teamA, ...m.teamB].forEach(rawId => {
       const id = idMap[rawId] || rawId;
       if (totals[id] !== undefined) totals[id]++;
@@ -2187,7 +2188,7 @@ function calcPlayerStats(matches) {
       });
     });
   });
-  const totalMatchMap = calcPlayerTotalMatches();
+  const totalMatchMap = calcPlayerTotalMatches(matches);
   return Object.values(stats)
     .filter(s => {
       const itemTotal = s.wins + s.losses;
@@ -2236,7 +2237,7 @@ function calcPlayerStatsBySubType(subType, matchesOverride) {
       });
     }
   });
-  const totalMatchMap = calcPlayerTotalMatches();
+  const totalMatchMap = calcPlayerTotalMatches(matches);
   return Object.values(stats)
     .filter(s => {
       const itemTotal = s.wins + s.losses;
