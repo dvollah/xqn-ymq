@@ -797,6 +797,10 @@ select.form-input {
       </div>
     </div>
   </div>
+  <div class="card" id="venueFilterCard">
+    <div class="card-title">📍 场地筛选</div>
+    <div class="stats-header" id="venueFilter" style="flex-wrap:wrap;"></div>
+  </div>
   <div class="card">
     <div class="card-title">🏆 个人胜率排行榜</div>
     <div class="stats-header" id="statsFilter" style="flex-wrap:wrap;">
@@ -1155,6 +1159,7 @@ let currentMatch = {
 let pickerTeam = null;
 let pickerSelected = [];
 let isAdmin = '';  // '' | 'full' | 'limited'
+let currentVenue = 'all';  // 场地筛选
 
 // ==================== Admin ====================
 function toggleAdmin() {
@@ -1290,6 +1295,14 @@ function init() {
   setupFilterTabs('historyFilter', renderHistory);
   setupFilterTabs('statsFilter', (f) => { renderRank(f); });
   setupFilterTabs('partnerTypeFilter', (f) => { renderPartners(f); });
+
+  // 场地筛选（内容动态生成，用事件委托）
+  document.getElementById('venueFilter').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-venue]');
+    if (!tab) return;
+    currentVenue = tab.dataset.venue;
+    renderStats();
+  });
 
   // 搭档排序 tab（胜率/次数）
   document.getElementById('partnerSortFilter').addEventListener('click', (e) => {
@@ -2041,6 +2054,30 @@ function renderStats() {
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   document.getElementById('todayMatches').textContent = state.matches.filter(m => m.createdAt >= todayStart.getTime()).length;
 
+  // 构建场地筛选列表
+  const venueSet = {};
+  state.matches.forEach(m => {
+    const loc = (m.location || '').trim();
+    if (loc) venueSet[loc] = true;
+  });
+  const venues = Object.keys(venueSet).sort();
+  const venueContainer = document.getElementById('venueFilter');
+  const venueCard = document.getElementById('venueFilterCard');
+
+  if (venues.length > 0) {
+    venueCard.style.display = '';
+    let html = `<div class="stats-tab ${currentVenue === 'all' ? 'active' : ''}" data-venue="all">全部场地</div>`;
+    venues.forEach(v => {
+      html += `<div class="stats-tab ${currentVenue === v ? 'active' : ''}" data-venue="${esc(v)}">${esc(v)}</div>`;
+    });
+    venueContainer.innerHTML = html;
+    // 如果当前场地不在列表中，重置为全部
+    if (currentVenue !== 'all' && !venues.includes(currentVenue)) currentVenue = 'all';
+  } else {
+    venueCard.style.display = 'none';
+    currentVenue = 'all';
+  }
+
   const statsFilter = getActiveFilter('statsFilter');
   renderRank(statsFilter);
   renderTotalWinRank();
@@ -2050,32 +2087,39 @@ function renderStats() {
   renderTotalPartnerRank();
 }
 
+// 获取场地筛选后的比赛列表
+function getVenueFilteredMatches() {
+  if (currentVenue === 'all') return state.matches;
+  return state.matches.filter(m => (m.location || '').trim() === currentVenue);
+}
+
 function renderRank(filter) {
   const list = document.getElementById('rankList');
+  const baseMatches = getVenueFilteredMatches();
   if (filter !== 'all') {
     const subTypes = ['男双','混双','女双','男单','女单'];
     if (subTypes.includes(filter)) {
       // 按球员所在方子类型分别统计：只计入该方为该子类型的球员
-      const ranked = calcPlayerStatsBySubType(filter);
+      const ranked = calcPlayerStatsBySubType(filter, baseMatches);
       if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
       list.innerHTML = renderRankRows(ranked);
       return;
     } else {
-      const matches = state.matches.filter(m => m.type === filter);
+      const matches = baseMatches.filter(m => m.type === filter);
       const ranked = calcPlayerStats(matches);
       if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
       list.innerHTML = renderRankRows(ranked);
       return;
     }
   }
-  const ranked = calcPlayerStats(state.matches);
+  const ranked = calcPlayerStats(baseMatches);
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
   list.innerHTML = renderRankRows(ranked);
 }
 
 function renderTotalWinRank() {
   const list = document.getElementById('totalWinRankList');
-  const ranked = calcPlayerStats(state.matches);
+  const ranked = calcPlayerStats(getVenueFilteredMatches());
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无数据</p></div>'; return; }
   list.innerHTML = renderRankRows(ranked);
 }
@@ -2145,7 +2189,8 @@ function calcPlayerStats(matches) {
 }
 
 // 按子类型（男双/女双/混双/男单/女单）分别统计：仅计入该方匹配子类型的球员
-function calcPlayerStatsBySubType(subType) {
+function calcPlayerStatsBySubType(subType, matchesOverride) {
+  const matches = matchesOverride || state.matches;
   const stats = {};
   const idMap = {};
   state.players.forEach(p => {
@@ -2154,7 +2199,7 @@ function calcPlayerStatsBySubType(subType) {
     if ((p.name || '').startsWith('路人')) return; // 路人甲乙丙丁不参与排行
     stats[p.id] = { pid: p.id, name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
-  state.matches.forEach(m => {
+  matches.forEach(m => {
     const aOk = m.teamASubType === subType;
     const bOk = m.teamBSubType === subType;
     if (!aOk && !bOk) return;
@@ -2218,9 +2263,10 @@ function renderPartners(filter) {
   const list = document.getElementById('partnerList');
   const sortBy = getActiveSort('partnerSortFilter');
   const isCount = sortBy === 'count';
+  const baseMatches = getVenueFilteredMatches();
 
   if (filter === 'all') {
-    const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
+    const matches = baseMatches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
     const ranked = calcPartnerStats(matches, sortBy);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
     list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
@@ -2228,11 +2274,11 @@ function renderPartners(filter) {
   }
   const subTypes = ['男双','混双','女双','男单','女单'];
   if (subTypes.includes(filter)) {
-    const ranked = calcPartnerStatsBySubType(filter, sortBy);
+    const ranked = calcPartnerStatsBySubType(filter, sortBy, baseMatches);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
     list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
   } else {
-    const matches = state.matches.filter(m => m.type === filter && m.teamA.length >= 2 && m.teamB.length >= 2);
+    const matches = baseMatches.filter(m => m.type === filter && m.teamA.length >= 2 && m.teamB.length >= 2);
     const ranked = calcPartnerStats(matches, sortBy);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
     list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
@@ -2241,7 +2287,7 @@ function renderPartners(filter) {
 
 function renderTotalPartnerRank() {
   const list = document.getElementById('totalPartnerRankList');
-  const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
+  const matches = getVenueFilteredMatches().filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
   const ranked = calcPartnerStats(matches, 'count');
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
   list.innerHTML = renderPartnerRowsByCount(ranked);
@@ -2281,15 +2327,16 @@ function calcPartnerStats(matches, sortBy) {
 }
 
 // 按子类型分别统计搭档：仅计入该方匹配子类型的配对
-function calcPartnerStatsBySubType(subType, sortBy) {
+function calcPartnerStatsBySubType(subType, sortBy, matchesOverride) {
   sortBy = sortBy || 'rate';
+  const matches = matchesOverride || state.matches;
   const pairs = {};
   // 构建球员姓名映射，用于判断路人
   const playerNames = {};
   state.players.forEach(p => { playerNames[p.id || p._id] = p.name || ''; });
   const isAllLuren = (playerIds) => playerIds.every(id => (playerNames[id] || id || '').startsWith('路人'));
 
-  state.matches.forEach(m => {
+  matches.forEach(m => {
     const aOk = m.teamASubType === subType && m.teamA.length >= 2;
     const bOk = m.teamBSubType === subType && m.teamB.length >= 2;
     if (aOk && !isAllLuren(m.teamA)) {
