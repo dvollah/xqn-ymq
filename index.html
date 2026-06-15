@@ -2054,25 +2054,35 @@ function renderStats() {
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   document.getElementById('todayMatches').textContent = state.matches.filter(m => m.createdAt >= todayStart.getTime()).length;
 
-  // 构建场地筛选列表
+  // 构建场地筛选列表（包含无记录地点）
   const venueSet = {};
+  let hasNoLocation = false;
   state.matches.forEach(m => {
     const loc = (m.location || '').trim();
-    if (loc) venueSet[loc] = true;
+    if (loc) {
+      venueSet[loc] = true;
+    } else {
+      hasNoLocation = true;
+    }
   });
   const venues = Object.keys(venueSet).sort();
   const venueContainer = document.getElementById('venueFilter');
   const venueCard = document.getElementById('venueFilterCard');
 
-  if (venues.length > 0) {
+  const showVenueCard = venues.length > 0 || hasNoLocation;
+  if (showVenueCard) {
     venueCard.style.display = '';
     let html = `<div class="stats-tab ${currentVenue === 'all' ? 'active' : ''}" data-venue="all">全部场地</div>`;
     venues.forEach(v => {
       html += `<div class="stats-tab ${currentVenue === v ? 'active' : ''}" data-venue="${esc(v)}">${esc(v)}</div>`;
     });
+    if (hasNoLocation) {
+      html += `<div class="stats-tab ${currentVenue === '无记录地点' ? 'active' : ''}" data-venue="无记录地点">无记录地点</div>`;
+    }
     venueContainer.innerHTML = html;
     // 如果当前场地不在列表中，重置为全部
-    if (currentVenue !== 'all' && !venues.includes(currentVenue)) currentVenue = 'all';
+    const allVenueNames = venues.concat(hasNoLocation ? ['无记录地点'] : []);
+    if (currentVenue !== 'all' && !allVenueNames.includes(currentVenue)) currentVenue = 'all';
   } else {
     venueCard.style.display = 'none';
     currentVenue = 'all';
@@ -2090,7 +2100,11 @@ function renderStats() {
 // 获取场地筛选后的比赛列表
 function getVenueFilteredMatches() {
   if (currentVenue === 'all') return state.matches;
-  return state.matches.filter(m => (m.location || '').trim() === currentVenue);
+  return state.matches.filter(m => {
+    const loc = (m.location || '').trim();
+    if (currentVenue === '无记录地点') return loc === '';
+    return loc === currentVenue;
+  });
 }
 
 function renderRank(filter) {
