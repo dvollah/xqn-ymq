@@ -1690,7 +1690,38 @@ function getNowDateTimeLocal() {
 }
 
 // ==================== Save Match ====================
+let _saveLock = false; // 防重复点击锁
+
+// 检测重复比赛：类型+双方球员+时间+每局比分相同
+function isDuplicateMatch(match) {
+  const allExisting = (state.matches || []).concat(state.pendingMatches || []);
+  for (const m of allExisting) {
+    if (m.type !== match.type) continue;
+    // 双方球员完全相同（忽略排序差异）
+    const a1 = (m.teamA || []).slice().sort().join(',');
+    const a2 = (match.teamA || []).slice().sort().join(',');
+    const b1 = (m.teamB || []).slice().sort().join(',');
+    const b2 = (match.teamB || []).slice().sort().join(',');
+    if (a1 !== a2 || b1 !== b2) continue;
+    // 时间相同（±60秒内算重复）
+    if (Math.abs((m.matchTime || 0) - (match.matchTime || 0)) > 60000) continue;
+    // 每局比分相同
+    const g1 = m.games || [];
+    const g2 = match.games || [];
+    if (g1.length !== g2.length) continue;
+    let sameScores = true;
+    for (let j = 0; j < g1.length; j++) {
+      if (g1[j].a !== g2[j].a || g1[j].b !== g2[j].b) { sameScores = false; break; }
+    }
+    if (!sameScores) continue;
+    return true;
+  }
+  return false;
+}
+
 async function saveMatch() {
+  if (_saveLock) { showToast('正在提交中，请勿重复操作'); return; }
+
   if (currentMatch.teamA.length === 0 || currentMatch.teamB.length === 0) return showToast('请选择双方球员');
 
   const meta = TYPE_META[currentMatch.type] || {};
@@ -1729,19 +1760,31 @@ async function saveMatch() {
     createdAt: Date.now()
   };
 
-  if (isAdmin || isOfflineMode) {
-    // 管理员/离线模式直接入库
-    await cloudAddMatch(matchData);
-    renderAll();
-    showToast('✅ 比赛已直接保存！');
-    resetCurrent();
-  } else {
-    // 普通用户进入待审核队列
-    await cloudAddPending(matchData);
-    updatePendingBanner();
-    if (isAdmin) renderReview();
-    showToast('📤 已提交，等待管理员审核后显示');
-    resetCurrent();
+  // 检测重复
+  if (isDuplicateMatch(matchData)) {
+    showToast('⚠️ 该比赛已记录过，请勿重复提交');
+    return;
+  }
+
+  _saveLock = true;
+
+  try {
+    if (isAdmin || isOfflineMode) {
+      // 管理员/离线模式直接入库
+      await cloudAddMatch(matchData);
+      renderAll();
+      showToast('✅ 比赛已直接保存！');
+      resetCurrent();
+    } else {
+      // 普通用户进入待审核队列
+      await cloudAddPending(matchData);
+      updatePendingBanner();
+      if (isAdmin) renderReview();
+      showToast('📤 已提交，等待管理员审核后显示');
+      resetCurrent();
+    }
+  } finally {
+    _saveLock = false;
   }
 }
 
