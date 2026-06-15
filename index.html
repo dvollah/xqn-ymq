@@ -2087,6 +2087,7 @@ function calcPlayerStats(matches) {
   state.players.forEach(p => {
     if (p._id) idMap[p._id] = p.id;
     if (p.id) idMap[p.id] = p.id;
+    if ((p.name || '').startsWith('路人')) return; // 路人甲乙丙丁不参与排行
     stats[p.id] = { pid: p.id, name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   matches.forEach(m => {
@@ -2129,6 +2130,7 @@ function calcPlayerStatsBySubType(subType) {
   state.players.forEach(p => {
     if (p._id) idMap[p._id] = p.id;
     if (p.id) idMap[p.id] = p.id;
+    if ((p.name || '').startsWith('路人')) return; // 路人甲乙丙丁不参与排行
     stats[p.id] = { pid: p.id, name: p.name, wins: 0, losses: 0, totalGames: 0, pointsWon: 0, pointsLost: 0 };
   });
   state.matches.forEach(m => {
@@ -2227,8 +2229,14 @@ function renderTotalPartnerRank() {
 function calcPartnerStats(matches, sortBy) {
   const pairs = {};
   sortBy = sortBy || 'rate';
+  // 构建球员姓名映射，用于判断路人
+  const playerNames = {};
+  state.players.forEach(p => { playerNames[p.id || p._id] = p.name || ''; });
+  const isAllLuren = (playerIds) => playerIds.every(id => (playerNames[id] || id || '').startsWith('路人'));
+
   matches.forEach(m => {
     const processTeam = (team, isWin) => {
+      if (isAllLuren(team)) return; // 全是路人不计入搭档排行
       const key = [...team].sort().join('+');
       if (!pairs[key]) pairs[key] = { players: [...team], wins: 0, losses: 0, matchList: [] };
       if (isWin) pairs[key].wins++; else pairs[key].losses++;
@@ -2255,16 +2263,21 @@ function calcPartnerStats(matches, sortBy) {
 function calcPartnerStatsBySubType(subType, sortBy) {
   sortBy = sortBy || 'rate';
   const pairs = {};
+  // 构建球员姓名映射，用于判断路人
+  const playerNames = {};
+  state.players.forEach(p => { playerNames[p.id || p._id] = p.name || ''; });
+  const isAllLuren = (playerIds) => playerIds.every(id => (playerNames[id] || id || '').startsWith('路人'));
+
   state.matches.forEach(m => {
     const aOk = m.teamASubType === subType && m.teamA.length >= 2;
     const bOk = m.teamBSubType === subType && m.teamB.length >= 2;
-    if (aOk) {
+    if (aOk && !isAllLuren(m.teamA)) {
       const key = [...m.teamA].sort().join('+');
       if (!pairs[key]) pairs[key] = { players: [...m.teamA], wins: 0, losses: 0, matchList: [] };
       if (m.winner === 'A') pairs[key].wins++; else pairs[key].losses++;
       pairs[key].matchList.push(m);
     }
-    if (bOk) {
+    if (bOk && !isAllLuren(m.teamB)) {
       const key = [...m.teamB].sort().join('+');
       if (!pairs[key]) pairs[key] = { players: [...m.teamB], wins: 0, losses: 0, matchList: [] };
       if (m.winner === 'B') pairs[key].wins++; else pairs[key].losses++;
