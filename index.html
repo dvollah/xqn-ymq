@@ -819,7 +819,11 @@ select.form-input {
     <div id="totalWinRankList"></div>
   </div>
   <div class="card">
-    <div class="card-title">🤝 搭档胜率排行榜</div>
+    <div class="card-title">🤝 搭档排行</div>
+    <div class="stats-header" id="partnerSortFilter" style="flex-wrap:wrap;">
+      <div class="stats-tab active" data-sort="rate">胜率排行</div>
+      <div class="stats-tab" data-sort="count">次数排行</div>
+    </div>
     <div class="stats-header" id="partnerTypeFilter" style="flex-wrap:wrap;">
       <div class="stats-tab active" data-filter="all">全部双打</div>
       <div class="stats-tab" data-filter="双打">双打</div>
@@ -832,8 +836,8 @@ select.form-input {
     <div id="partnerList"></div>
   </div>
   <div class="card">
-    <div class="card-title">🏅 搭档总胜率排行（综合）</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">所有双打组合按胜率+场次综合排名</div>
+    <div class="card-title">🏅 搭档总排行（综合）</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">所有双打组合按总场次排名</div>
     <div id="totalPartnerRankList"></div>
   </div>
 </div>
@@ -1266,6 +1270,15 @@ function init() {
   setupFilterTabs('statsFilter', (f) => { renderRank(f); });
   setupFilterTabs('partnerTypeFilter', (f) => { renderPartners(f); });
 
+  // 搭档排序 tab（胜率/次数）
+  document.getElementById('partnerSortFilter').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-sort]');
+    if (!tab) return;
+    document.querySelectorAll('#partnerSortFilter [data-sort]').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    renderPartners(getActiveFilter('partnerTypeFilter'));
+  });
+
   document.getElementById('newPlayerName').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addPlayer();
   });
@@ -1368,6 +1381,11 @@ function setupFilterTabs(groupId, cb) {
 function getActiveFilter(groupId) {
   const active = document.querySelector('#' + groupId + ' .active[data-filter]');
   return active ? active.dataset.filter : 'all';
+}
+
+function getActiveSort(groupId) {
+  const active = document.querySelector('#' + groupId + ' .active[data-sort]');
+  return active ? active.dataset.sort : 'rate';
 }
 
 // ==================== Player Management ====================
@@ -2132,37 +2150,40 @@ function renderRankRows(ranked) {
 
 function renderPartners(filter) {
   const list = document.getElementById('partnerList');
+  const sortBy = getActiveSort('partnerSortFilter');
+  const isCount = sortBy === 'count';
+
   if (filter === 'all') {
     const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
-    const ranked = calcPartnerStats(matches);
+    const ranked = calcPartnerStats(matches, sortBy);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
+    list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
     return;
   }
   const subTypes = ['男双','混双','女双','男单','女单'];
   if (subTypes.includes(filter)) {
-    // 按子类型分别统计搭档：仅计入该方匹配子类型的配对
-    const ranked = calcPartnerStatsBySubType(filter);
+    const ranked = calcPartnerStatsBySubType(filter, sortBy);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
+    list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
   } else {
     const matches = state.matches.filter(m => m.type === filter && m.teamA.length >= 2 && m.teamB.length >= 2);
-    const ranked = calcPartnerStats(matches);
+    const ranked = calcPartnerStats(matches, sortBy);
     if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-    list.innerHTML = renderPartnerRows(ranked);
+    list.innerHTML = isCount ? renderPartnerRowsByCount(ranked) : renderPartnerRows(ranked);
   }
 }
 
 function renderTotalPartnerRank() {
   const list = document.getElementById('totalPartnerRankList');
   const matches = state.matches.filter(m => m.teamA.length >= 2 && m.teamB.length >= 2);
-  const ranked = calcPartnerStats(matches);
+  const ranked = calcPartnerStats(matches, 'count');
   if (ranked.length === 0) { list.innerHTML = '<div class="empty-state"><p>暂无搭档数据</p></div>'; return; }
-  list.innerHTML = renderPartnerRows(ranked);
+  list.innerHTML = renderPartnerRowsByCount(ranked);
 }
 
-function calcPartnerStats(matches) {
+function calcPartnerStats(matches, sortBy) {
   const pairs = {};
+  sortBy = sortBy || 'rate';
   matches.forEach(m => {
     const processTeam = (team, isWin) => {
       const key = [...team].sort().join('+');
@@ -2174,14 +2195,22 @@ function calcPartnerStats(matches) {
     if (m.teamB.length >= 2) processTeam(m.teamB, m.winner === 'B');
   });
   return Object.values(pairs).sort((a, b) => {
-    const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
+    const totalA = a.wins + a.losses, totalB = b.wins + b.losses;
+    if (sortBy === 'count') {
+      if (totalB !== totalA) return totalB - totalA;
+      const rA = totalA > 0 ? a.wins / totalA : 0, rB = totalB > 0 ? b.wins / totalB : 0;
+      if (rB !== rA) return rB - rA;
+      return 0;
+    }
+    const rA = totalA > 0 ? a.wins / totalA : 0, rB = totalB > 0 ? b.wins / totalB : 0;
     if (rB !== rA) return rB - rA;
-    return (b.wins + b.losses) - (a.wins + a.losses);
+    return totalB - totalA;
   });
 }
 
 // 按子类型分别统计搭档：仅计入该方匹配子类型的配对
-function calcPartnerStatsBySubType(subType) {
+function calcPartnerStatsBySubType(subType, sortBy) {
+  sortBy = sortBy || 'rate';
   const pairs = {};
   state.matches.forEach(m => {
     const aOk = m.teamASubType === subType && m.teamA.length >= 2;
@@ -2200,9 +2229,16 @@ function calcPartnerStatsBySubType(subType) {
     }
   });
   return Object.values(pairs).sort((a, b) => {
-    const rA = a.wins / (a.wins + a.losses), rB = b.wins / (b.wins + b.losses);
+    const totalA = a.wins + a.losses, totalB = b.wins + b.losses;
+    if (sortBy === 'count') {
+      if (totalB !== totalA) return totalB - totalA;
+      const rA = totalA > 0 ? a.wins / totalA : 0, rB = totalB > 0 ? b.wins / totalB : 0;
+      if (rB !== rA) return rB - rA;
+      return 0;
+    }
+    const rA = totalA > 0 ? a.wins / totalA : 0, rB = totalB > 0 ? b.wins / totalB : 0;
     if (rB !== rA) return rB - rA;
-    return (b.wins + b.losses) - (a.wins + a.losses);
+    return totalB - totalA;
   });
 }
 
@@ -2228,6 +2264,27 @@ function renderPartnerRows(ranked) {
           <div class="stat-detail">${pair.wins}胜 ${pair.losses}负 · 共${total}场 · 点击查看详情</div>
         </div>
         <div class="stat-value" style="color:var(--primary);">${rate}%</div>
+      </div>`;
+  }).join('');
+}
+
+function renderPartnerRowsByCount(ranked) {
+  _partnerDetailCache = {};
+  return ranked.slice(0, 12).map((pair, i) => {
+    const names = pair.players.map(id => state.players.find(p => p._id === id || p.id === id)).filter(Boolean).map(p => p.name);
+    const total = pair.wins + pair.losses;
+    const rate = total > 0 ? Math.round(pair.wins / total * 100) : 0;
+    const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-n';
+    const cacheKey = 'pair_' + i;
+    _partnerDetailCache[cacheKey] = pair;
+    return `
+      <div class="stat-row" style="cursor:pointer;" onclick="openPartnerDetail('${cacheKey}')">
+        <div class="stat-rank ${rankClass}">${i + 1}</div>
+        <div class="stat-info">
+          <div class="stat-name">${names.join(' & ')}</div>
+          <div class="stat-detail">${total}场 · ${pair.wins}胜${pair.losses}负 · 胜率${rate}% · 点击查看详情</div>
+        </div>
+        <div class="stat-value" style="color:var(--info);">${total}场</div>
       </div>`;
   }).join('');
 }
