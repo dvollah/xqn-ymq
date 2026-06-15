@@ -861,8 +861,8 @@ select.form-input {
 <!-- ==================== 审核管理 ==================== -->
 <div class="page" id="page-review">
   <div class="card" style="border: 2px solid var(--warn); background: #FFFBEB;">
-    <div class="card-title">🔐 管理员模式</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">以下比赛数据等待你的审核。审核通过后将显示在比赛记录和数据统计中。</div>
+    <div class="card-title">🔐 管理员模式 <span id="adminRoleTag" style="font-size:12px;font-weight:400;"></span></div>
+    <div id="adminReviewHint" style="font-size:13px;color:var(--text2);margin-bottom:10px;">以下比赛数据等待你的审核。审核通过后将显示在比赛记录和数据统计中。</div>
     <button class="btn btn-danger btn-sm" onclick="adminLogout()">退出管理员</button>
   </div>
   <div id="reviewList"></div>
@@ -907,7 +907,8 @@ const ENV_ID = 'ymq-d1g1qdr0d4028ee0b';
 const API_BASE = 'https://' + ENV_ID + '.service.tcloudbase.com/ymq-api';
 
 // ==================== 管理员配置 ====================
-const ADMIN_PASSWORD = 'ymq2024';
+const ADMIN_PASSWORD_FULL = 'ymq2024';     // 全权限
+const ADMIN_PASSWORD_LIMITED = 'xqn@2026'; // 仅审核 + 加球员
 
 // ==================== API 状态 ====================
 let apiOnline = false;   // 云函数 API 是否可达
@@ -1153,7 +1154,7 @@ let currentMatch = {
 };
 let pickerTeam = null;
 let pickerSelected = [];
-let isAdmin = false;
+let isAdmin = '';  // '' | 'full' | 'limited'
 
 // ==================== Admin ====================
 function toggleAdmin() {
@@ -1173,11 +1174,17 @@ function closeAdminModal() {
 
 function submitAdminPw() {
   const pw = document.getElementById('adminPwInput').value;
-  if (pw === ADMIN_PASSWORD) {
-    isAdmin = true;
+  if (pw === ADMIN_PASSWORD_FULL) {
+    isAdmin = 'full';
     closeAdminModal();
     updateAdminUI();
-    showToast('✅ 已进入管理员模式');
+    showToast('✅ 已进入管理员模式（全权限）');
+    switchTab('review');
+  } else if (pw === ADMIN_PASSWORD_LIMITED) {
+    isAdmin = 'limited';
+    closeAdminModal();
+    updateAdminUI();
+    showToast('✅ 已进入管理员模式（审核+球员管理）');
     switchTab('review');
   } else {
     document.getElementById('pwError').style.display = 'block';
@@ -1187,7 +1194,7 @@ function submitAdminPw() {
 }
 
 function adminLogout() {
-  isAdmin = false;
+  isAdmin = '';
   updateAdminUI();
   switchTab('record');
   showToast('已退出管理员模式');
@@ -1201,8 +1208,8 @@ function updateAdminUI() {
 
   if (isAdmin) {
     badge.classList.add('is-admin');
-    icon.textContent = '👑';
-    text.textContent = '管理员 · 已登录';
+    icon.textContent = isAdmin === 'full' ? '👑' : '⭐';
+    text.textContent = isAdmin === 'full' ? '管理员 · 全权限' : '管理员 · 审核';
     reviewBtn.style.display = '';
     const cnt = state.pendingMatches.length;
     reviewBtn.innerHTML = '审核管理' + (cnt > 0 ? '<span class="badge-dot"></span>' : '');
@@ -1214,6 +1221,20 @@ function updateAdminUI() {
     if (document.getElementById('page-review').classList.contains('active')) switchTab('record');
   }
   updatePendingBanner();
+  // 更新审核页角色标签
+  const roleTag = document.getElementById('adminRoleTag');
+  const reviewHint = document.getElementById('adminReviewHint');
+  if (roleTag && reviewHint) {
+    if (isAdmin === 'full') {
+      roleTag.textContent = '（全权限）';
+      roleTag.style.color = 'var(--primary)';
+      reviewHint.textContent = '以下比赛数据等待审核。你拥有全部管理权限（审核、增删球员、删比赛、改比分）。';
+    } else if (isAdmin === 'limited') {
+      roleTag.textContent = '（审核 + 球员管理）';
+      roleTag.style.color = 'var(--warn)';
+      reviewHint.textContent = '以下比赛数据等待审核。你仅可审核通过比赛和添加球员，无删除/修改权限。';
+    }
+  }
 }
 
 function updatePendingBanner() {
@@ -1427,7 +1448,7 @@ function addPlayer() {
 }
 
 async function removePlayer(id) {
-  if (!isAdmin) return showToast('🔒 需要管理员权限');
+  if (isAdmin !== 'full') return showToast('🔒 仅全权限管理员可删除球员');
   const inMatch = state.matches.some(m => m.teamA.includes(id) || m.teamB.includes(id));
   if (inMatch) return showToast('该球员有比赛记录，无法删除');
   await cloudRemovePlayer(id);
@@ -1454,7 +1475,7 @@ function renderPlayers() {
           <div style="font-size:15px;font-weight:600;">${esc(p.name)}</div>
           <div style="font-size:12px;color:var(--text3);">参赛 ${matches} 场 · 点击查看战绩</div>
         </div>
-        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removePlayer('${p._id}')">删除</button>` : ''}
+        ${isAdmin === 'full' ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removePlayer('${p._id}')">删除</button>` : ''}
       </div>`;
   }).join('');
 }
@@ -1769,8 +1790,8 @@ async function saveMatch() {
   _saveLock = true;
 
   try {
-    if (isAdmin || isOfflineMode) {
-      // 管理员/离线模式直接入库
+    if (isAdmin === 'full' || isOfflineMode) {
+      // 全权限管理员/离线模式直接入库
       await cloudAddMatch(matchData);
       renderAll();
       showToast('✅ 比赛已直接保存！');
@@ -1841,7 +1862,7 @@ function renderMatchItem(m, showDelete) {
   const time = m.matchTime ? formatDate(m.matchTime) : formatDate(m.createdAt);
   const subA = m.teamASubType ? '（' + m.teamASubType + '）' : '';
   const subB = m.teamBSubType ? '（' + m.teamBSubType + '）' : '';
-  const gamesDisplay = isAdmin
+  const gamesDisplay = isAdmin === 'full'
     ? m.games.map((g, i) => {
         const serverStr = g.server ? '<span style="font-size:10px;color:var(--primary);"> 发:' + esc(getPlayerName(g.server)) + '</span>' : '';
         const receiverStr = g.receiver ? '<span style="font-size:10px;color:var(--info);"> 接:' + esc(getPlayerName(g.receiver)) + '</span>' : '';
@@ -1860,7 +1881,7 @@ function renderMatchItem(m, showDelete) {
       }).join(' / ');
   const noteHtml = m.note ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:4px 8px;background:var(--bg);border-radius:4px;">📝 ' + esc(m.note) + '</div>' : '';
   const locHtml = m.location ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ' + esc(m.location) + '</div>' : '';
-  const deleteBtn = (showDelete && isAdmin) ? '<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:10px;margin-top:4px;" onclick="deleteMatch(\'' + m._id + '\')">删除</button>' : '';
+  const deleteBtn = (showDelete && isAdmin === 'full') ? '<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:10px;margin-top:4px;" onclick="deleteMatch(\'' + m._id + '\')">删除</button>' : '';
   return `
     <div class="match-item">
       <div class="match-type-badge ${typeClass}">${m.type}</div>
@@ -1879,7 +1900,7 @@ function renderMatchItem(m, showDelete) {
 }
 
 async function promptEditGameScore(matchId, gameIdx) {
-  if (!isAdmin) return;
+  if (isAdmin !== 'full') return;
   const m = state.matches.find(x => x._id === matchId);
   if (!m || !m.games[gameIdx]) return;
   const g = m.games[gameIdx];
@@ -1903,7 +1924,7 @@ async function promptEditGameScore(matchId, gameIdx) {
 }
 
 async function deleteMatch(id) {
-  if (!isAdmin) return showToast('🔒 需要管理员权限');
+  if (isAdmin !== 'full') return showToast('🔒 仅全权限管理员可删除比赛');
   // 确认弹窗
   const yn = confirm('⚠️ 确定要删除这条比赛记录吗？\n\n此操作不可撤销，数据将永久丢失！');
   if (!yn) return;
