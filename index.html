@@ -908,7 +908,7 @@ select.form-input {
 <script>
 // ==================== API 配置 ====================
 const ENV_ID = 'ymq-d1g1qdr0d4028ee0b';
-const API_BASE = 'https://' + ENV_ID + '.service.tcloudbase.com/ymq-api';
+const API_BASE = 'https://' + ENV_ID + '.ap-shanghai.app.tcloudbase.com/ymq-api';
 
 // ==================== 管理员配置 ====================
 const ADMIN_PASSWORD_FULL = 'ymq2024';     // 全权限
@@ -919,15 +919,26 @@ let apiOnline = false;   // 云函数 API 是否可达
 let isOfflineMode = false;
 
 // ==================== 通用 fetch 封装 ====================
-async function apiFetch(path, options) {
+async function apiFetch(path, options, timeoutMs = 15000) {
   const url = API_BASE + '/' + path;
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options
-  });
-  const json = await res.json();
-  if (json.code !== 0) throw new Error(json.msg || 'API 错误');
-  return json.data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (json.code !== 0) throw new Error(json.msg || 'API 错误');
+    return json.data;
+  } catch(e) {
+    if (e.name === 'AbortError') throw new Error('请求超时，请检查网络');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ==================== 初始化 ====================
@@ -1073,7 +1084,12 @@ async function cloudAddPending(match) {
     const result = await apiFetch('pending', { method: 'POST', body: JSON.stringify(match) });
     match._id = result._id;
     state.pendingMatches.push(match);
-  } catch(e) { console.warn('cloudAddPending 云端失败:', e.message); }
+  } catch(e) {
+    console.warn('cloudAddPending 云端失败:', e.message);
+    state.pendingMatches.push(match);
+    saveLocalFallback();
+    showToast('⚠️ 提交未同步到云端，数据已本地保存');
+  }
 }
 
 async function cloudRemovePending(id) {

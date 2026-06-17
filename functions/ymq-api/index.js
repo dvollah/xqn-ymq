@@ -43,6 +43,20 @@ function fail(msg, code) {
   return { code: code || -1, msg };
 }
 
+// 为所有响应添加 CORS 头
+function withCors(body, statusCode = 200) {
+  return {
+    statusCode,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  };
+}
+
 exports.main = async (event, context) => {
   const { httpMethod, path, body, headers } = event;
 
@@ -71,48 +85,50 @@ exports.main = async (event, context) => {
       data = body;
     }
   } catch (e) {
-    return fail('请求体 JSON 解析失败');
+    return withCors(fail('请求体 JSON 解析失败'));
   }
 
   try {
+    let result;
     switch (resource) {
       // ==================== Players ====================
       case 'players':
         if (httpMethod === 'GET') {
           const res = await db.collection(COL_PLAYERS).limit(1000).get();
-          return ok(res.data || []);
+          result = ok(res.data || []);
         }
-        if (httpMethod === 'POST') {
+        else if (httpMethod === 'POST') {
           // 如果 URL 中包含 id，视为更新操作
           if (id) {
             const updateData = {};
             if (data.name !== undefined) updateData.name = (data.name || '').trim();
             if (data.gender !== undefined) updateData.gender = data.gender;
-            if (Object.keys(updateData).length === 0) return fail('无有效更新字段');
+            if (Object.keys(updateData).length === 0) { result = fail('无有效更新字段'); break; }
             await db.collection(COL_PLAYERS).doc(id).update(updateData);
-            return ok({ updated: id });
+            result = ok({ updated: id });
+          } else {
+            if (!data.name) { result = fail('缺少 name 字段'); break; }
+            const player = {
+              id: data.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+              name: (data.name || '').trim(),
+              gender: data.gender || '男',
+              createdAt: Date.now()
+            };
+            const res = await db.collection(COL_PLAYERS).add(player);
+            result = ok({ ...player, _id: res.id });
           }
-          if (!data.name) return fail('缺少 name 字段');
-          const player = {
-            id: data.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
-            name: (data.name || '').trim(),
-            gender: data.gender || '男',
-            createdAt: Date.now()
-          };
-          const res = await db.collection(COL_PLAYERS).add(player);
-          return ok({ ...player, _id: res.id });
         }
-        if (httpMethod === 'PUT' && id) {
+        else if (httpMethod === 'PUT' && id) {
           const updateData = {};
           if (data.name !== undefined) updateData.name = (data.name || '').trim();
           if (data.gender !== undefined) updateData.gender = data.gender;
-          if (Object.keys(updateData).length === 0) return fail('无有效更新字段');
+          if (Object.keys(updateData).length === 0) { result = fail('无有效更新字段'); break; }
           await db.collection(COL_PLAYERS).doc(id).update(updateData);
-          return ok({ updated: id });
+          result = ok({ updated: id });
         }
-        if (httpMethod === 'DELETE' && id) {
+        else if (httpMethod === 'DELETE' && id) {
           await db.collection(COL_PLAYERS).doc(id).remove();
-          return ok({ deleted: id });
+          result = ok({ deleted: id });
         }
         break;
 
@@ -120,22 +136,22 @@ exports.main = async (event, context) => {
       case 'matches':
         if (httpMethod === 'GET') {
           const res = await db.collection(COL_MATCHES).orderBy('createdAt', 'desc').limit(1000).get();
-          return ok(res.data || []);
+          result = ok(res.data || []);
         }
-        if (httpMethod === 'POST') {
+        else if (httpMethod === 'POST') {
           const match = { ...data, createdAt: data.createdAt || Date.now() };
           delete match._id;
           const res = await db.collection(COL_MATCHES).add(match);
-          return ok({ ...match, _id: res.id });
+          result = ok({ ...match, _id: res.id });
         }
-        if (httpMethod === 'PUT' && id) {
+        else if (httpMethod === 'PUT' && id) {
           const { _id, ...updateData } = data;
           await db.collection(COL_MATCHES).doc(id).update(updateData);
-          return ok({ updated: id });
+          result = ok({ updated: id });
         }
-        if (httpMethod === 'DELETE' && id) {
+        else if (httpMethod === 'DELETE' && id) {
           await db.collection(COL_MATCHES).doc(id).remove();
-          return ok({ deleted: id });
+          result = ok({ deleted: id });
         }
         break;
 
@@ -143,27 +159,31 @@ exports.main = async (event, context) => {
       case 'pending':
         if (httpMethod === 'GET') {
           const res = await db.collection(COL_PENDING).orderBy('createdAt', 'desc').limit(1000).get();
-          return ok(res.data || []);
+          result = ok(res.data || []);
         }
-        if (httpMethod === 'POST') {
+        else if (httpMethod === 'POST') {
           const match = { ...data, createdAt: data.createdAt || Date.now() };
           delete match._id;
           const res = await db.collection(COL_PENDING).add(match);
-          return ok({ ...match, _id: res.id });
+          result = ok({ ...match, _id: res.id });
         }
-        if (httpMethod === 'DELETE' && id) {
+        else if (httpMethod === 'DELETE' && id) {
           await db.collection(COL_PENDING).doc(id).remove();
-          return ok({ deleted: id });
+          result = ok({ deleted: id });
         }
         break;
 
       default:
-        return fail('未知资源: ' + resource, 404);
+        result = fail('未知资源: ' + resource, 404);
     }
   } catch (err) {
     console.error('云函数错误:', err);
-    return fail(err.message || '服务器内部错误', 500);
+    result = fail(err.message || '服务器内部错误', 500);
   }
 
-  return fail('不支持: ' + httpMethod + ' /' + resource + (id ? '/' + id : '') + ' (path=' + path + ')', 405);
+  if (!result) {
+    result = fail('不支持: ' + httpMethod + ' /' + resource + (id ? '/' + id : '') + ' (path=' + path + ')', 405);
+  }
+
+  return withCors(result);
 };
