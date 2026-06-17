@@ -908,7 +908,7 @@ select.form-input {
 <script>
 // ==================== API 配置 ====================
 const ENV_ID = 'ymq-d1g1qdr0d4028ee0b';
-const API_BASE = 'https://' + ENV_ID + '.ap-shanghai.app.tcloudbase.com/ymq-api';
+const API_BASE = 'https://' + ENV_ID + '.service.tcloudbase.com/ymq-api';
 
 // ==================== 管理员配置 ====================
 const ADMIN_PASSWORD_FULL = 'ymq2024';     // 全权限
@@ -930,6 +930,12 @@ async function apiFetch(path, options, timeoutMs = 15000) {
       signal: controller.signal
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    // 检测 CloudBase 中间页（返回 HTML 而非 JSON）
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('text/html')) {
+      apiOnline = false;
+      throw new Error('CloudBase 域名已被拦截，请配置自定义域名');
+    }
     const json = await res.json();
     if (json.code !== 0) throw new Error(json.msg || 'API 错误');
     return json.data;
@@ -1040,7 +1046,10 @@ async function cloudAddMatch(match) {
   try {
     const result = await apiFetch('matches', { method: 'POST', body: JSON.stringify(match) });
     match._id = result._id;
-  } catch(e) { console.warn('cloudAddMatch 云端失败:', e.message); }
+  } catch(e) {
+    console.warn('cloudAddMatch 云端失败:', e.message);
+    showToast('⚠️ 云端保存失败，已本地保存');
+  }
   state.matches.unshift(match);
   saveLocalFallback();
   return match;
@@ -1833,6 +1842,15 @@ async function saveMatch() {
       showToast('📤 已提交，等待管理员审核后显示');
       resetCurrent();
     }
+  } catch(e) {
+    // API 失败时自动降级到本地保存
+    console.warn('saveMatch 提交失败，降级到本地保存:', e.message);
+    if (!apiOnline) isOfflineMode = true;
+    state.matches.unshift(matchData);
+    saveLocalFallback();
+    renderAll();
+    showToast('⚠️ 云端同步失败，已本地保存：' + e.message);
+    resetCurrent();
   } finally {
     _saveLock = false;
   }
