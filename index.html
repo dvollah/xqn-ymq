@@ -1485,6 +1485,38 @@ function addPlayer() {
   }
 }
 
+async function cloudUpdatePlayer(id, data) {
+  if (isOfflineMode || !apiOnline) {
+    const p = state.players.find(p => p._id === id || p.id === id);
+    if (p) { if (data.name) p.name = data.name; if (data.gender) p.gender = data.gender; }
+    saveLocalFallback();
+    return;
+  }
+  try {
+    await apiFetch('players/' + id, { method: 'PUT', body: JSON.stringify(data) });
+  } catch(e) { console.warn('cloudUpdatePlayer 云端失败:', e.message); }
+  const p = state.players.find(p => p._id === id || p.id === id);
+  if (p) { if (data.name) p.name = data.name; if (data.gender) p.gender = data.gender; }
+  saveLocalFallback();
+}
+
+function editPlayer(id) {
+  if (isAdmin !== 'full') return showToast('🔒 仅全权限管理员可修改球员');
+  const p = state.players.find(p => p._id === id || p.id === id);
+  if (!p) return showToast('未找到该球员');
+  const newName = prompt('修改昵称：', p.name);
+  if (newName === null) return;
+  const name = newName.trim();
+  if (!name) return showToast('昵称不能为空');
+  if (name.length > 10) return showToast('昵称最多10个字符');
+  if (name !== p.name && state.players.some(x => x.name === name)) return showToast('该昵称已存在');
+  const gender = confirm(p.gender === '男' ? '点「确定」保持♂️男，点「取消」改为♀️女' : '点「确定」保持♀️女，点「取消」改为♂️男') ? p.gender : (p.gender === '男' ? '女' : '男');
+  cloudUpdatePlayer(p._id || p.id, { name, gender }).then(() => {
+    renderPlayers();
+    showToast('✅ 已修改为 ' + name);
+  });
+}
+
 async function removePlayer(id) {
   if (isAdmin !== 'full') return showToast('🔒 仅全权限管理员可删除球员');
   const inMatch = state.matches.some(m => m.teamA.includes(id) || m.teamB.includes(id));
@@ -1513,7 +1545,7 @@ function renderPlayers() {
           <div style="font-size:15px;font-weight:600;">${esc(p.name)}</div>
           <div style="font-size:12px;color:var(--text3);">参赛 ${matches} 场 · 点击查看战绩</div>
         </div>
-        ${isAdmin === 'full' ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removePlayer('${p._id}')">删除</button>` : ''}
+        ${isAdmin === 'full' ? `<button class="btn btn-sm" style="background:var(--primary);color:#fff;margin-right:6px;" onclick="event.stopPropagation();editPlayer('${p._id || p.id}')">编辑</button><button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removePlayer('${p._id || p.id}')">删除</button>` : ''}
       </div>`;
   }).join('');
 }
