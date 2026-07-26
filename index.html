@@ -918,15 +918,31 @@ const ADMIN_PASSWORD_LIMITED = 'xqn@2026'; // 仅审核 + 加球员
 let apiOnline = false;   // 云函数 API 是否可达
 let isOfflineMode = false;
 
+// 将中文等非 ASCII 字符转义为 \uXXXX，规避 CloudBase HTTP 触发器偶发的请求体 UTF-8 乱码问题
+function safeJsonStringify(obj) {
+  return JSON.stringify(obj).replace(/[\u0080-\uffff]/g, function(c) {
+    return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+  });
+}
+
 // ==================== 通用 fetch 封装 ====================
 async function apiFetch(path, options, timeoutMs = 15000) {
   const url = API_BASE + '/' + path;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    let body = options && options.body;
+    if (body !== undefined) {
+      if (typeof body === 'object') {
+        body = safeJsonStringify(body);
+      } else if (typeof body === 'string') {
+        try { body = safeJsonStringify(JSON.parse(body)); } catch(e) {}
+      }
+    }
     const res = await fetch(url, {
       headers: { 'Content-Type': 'application/json' },
       ...options,
+      body,
       signal: controller.signal
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
